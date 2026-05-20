@@ -29,18 +29,15 @@
 //!   - usdc_reserve_index: 3 en TestnetV2 (XLM=0, wETH=1, wBTC=2, USDC=3 — obtenido via get_reserve_list())
 //!   - name/symbol: metadatos del share token (e.g. "Accesly Blend USDC", "abUSDC")
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error,
-    contracterror, token, Address, Env, MuxedAddress, String,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
+    MuxedAddress, String,
 };
 use stellar_tokens::{
     fungible::{Base, FungibleToken},
     vault::{emit_deposit, emit_withdraw, FungibleVault, Vault, VaultTokenError},
 };
 
-use crate::{
-    blend_client,
-    storage,
-};
+use crate::{blend_client, storage};
 
 // ── Errores ───────────────────────────────────────────────────────────────────
 
@@ -104,10 +101,15 @@ impl BlendVaultContract {
         symbol: String,
     ) {
         // One-time initialization guard: prevent re-initialization post-deploy.
-        if e.storage().instance().has(&storage::StorageKey::Initialized) {
+        if e.storage()
+            .instance()
+            .has(&storage::StorageKey::Initialized)
+        {
             panic_with_error!(e, BlendVaultError::AlreadyInitialized);
         }
-        e.storage().instance().set(&storage::StorageKey::Initialized, &true);
+        e.storage()
+            .instance()
+            .set(&storage::StorageKey::Initialized, &true);
 
         // Guarda config del vault (asset subyacente = USDC)
         Vault::set_asset(e, usdc_address);
@@ -167,13 +169,7 @@ impl FungibleVault for BlendVaultContract {
     /// Deposita `assets` USDC en el Vault y emite shares al `receiver`.
     /// El USDC se deposita en Blend como colateral. El `operator` debe
     /// estar autorizado por el Smart Account.
-    fn deposit(
-        e: &Env,
-        assets: i128,
-        receiver: Address,
-        from: Address,
-        operator: Address,
-    ) -> i128 {
+    fn deposit(e: &Env, assets: i128, receiver: Address, from: Address, operator: Address) -> i128 {
         operator.require_auth();
 
         if assets <= 0 {
@@ -191,7 +187,7 @@ impl FungibleVault for BlendVaultContract {
         let usdc = Vault::query_asset(e);
         let usdc_client = token::Client::new(e, &usdc);
         if operator == from {
-            usdc_client.transfer(&from, &e.current_contract_address(), &assets);
+            usdc_client.transfer(&from, e.current_contract_address(), &assets);
         } else {
             usdc_client.transfer_from(&operator, &from, &e.current_contract_address(), &assets);
         }
@@ -214,13 +210,7 @@ impl FungibleVault for BlendVaultContract {
 
     /// Quema `shares` del vault y devuelve USDC al `receiver`.
     /// Retira los activos desde el pool de Blend.
-    fn redeem(
-        e: &Env,
-        shares: i128,
-        receiver: Address,
-        owner: Address,
-        operator: Address,
-    ) -> i128 {
+    fn redeem(e: &Env, shares: i128, receiver: Address, owner: Address, operator: Address) -> i128 {
         operator.require_auth();
 
         let max = Vault::max_redeem(e, owner.clone());
@@ -312,7 +302,12 @@ impl BlendVaultContract {
         let principal = storage::get_principal(&e, &account);
         let yield_accrued = current_value.saturating_sub(principal);
 
-        UserPosition { shares, current_value, principal, yield_accrued }
+        UserPosition {
+            shares,
+            current_value,
+            principal,
+            yield_accrued,
+        }
     }
 
     /// Distribuye el yield acumulado de un Smart Account: 60% al usuario,
@@ -346,9 +341,11 @@ impl BlendVaultContract {
         let yield_amount = position.yield_accrued;
 
         // Calcular partes (60/30/10) con aritmética chequeada para evitar overflow.
-        let accesly_part = yield_amount.checked_div(10)
+        let accesly_part = yield_amount
+            .checked_div(10)
             .unwrap_or_else(|| panic_with_error!(&e, BlendVaultError::ArithmeticError));
-        let developer_part = yield_amount.checked_mul(30)
+        let developer_part = yield_amount
+            .checked_mul(30)
             .and_then(|v| v.checked_div(100))
             .unwrap_or_else(|| panic_with_error!(&e, BlendVaultError::ArithmeticError));
         let user_part = yield_amount
@@ -371,11 +368,25 @@ impl BlendVaultContract {
         let usdc_client = token::Client::new(&e, &usdc);
 
         // Retirar yield total de Blend al vault (temporalmente)
-        blend_client::withdraw_collateral(&e, &pool, &usdc, yield_amount, &e.current_contract_address());
+        blend_client::withdraw_collateral(
+            &e,
+            &pool,
+            &usdc,
+            yield_amount,
+            &e.current_contract_address(),
+        );
 
         // Distribuir desde el vault
         usdc_client.transfer(&e.current_contract_address(), &smart_account, &user_part);
-        usdc_client.transfer(&e.current_contract_address(), &developer_wallet, &developer_part);
-        usdc_client.transfer(&e.current_contract_address(), &accesly_wallet, &accesly_part);
+        usdc_client.transfer(
+            &e.current_contract_address(),
+            &developer_wallet,
+            &developer_part,
+        );
+        usdc_client.transfer(
+            &e.current_contract_address(),
+            &accesly_wallet,
+            &accesly_part,
+        );
     }
 }

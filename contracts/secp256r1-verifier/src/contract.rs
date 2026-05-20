@@ -21,24 +21,26 @@ mod tests {
 
     use hex_literal::hex;
     use p256::{
-        ecdsa::{signature::hazmat::PrehashSigner, Signature as P256Sig, SigningKey as P256SigningKey},
+        ecdsa::{
+            signature::hazmat::PrehashSigner, Signature as P256Sig, SigningKey as P256SigningKey,
+        },
         elliptic_curve::sec1::ToEncodedPoint,
         SecretKey as P256SecretKey,
     };
     use soroban_sdk::{xdr::ToXdr, Bytes, BytesN, Env};
+    use stellar_accounts::verifiers::utils::base64_url_encode;
     use stellar_accounts::verifiers::webauthn::{
         WebAuthnSigData, AUTH_DATA_FLAGS_BE, AUTH_DATA_FLAGS_BS, AUTH_DATA_FLAGS_UP,
         AUTH_DATA_FLAGS_UV,
     };
-    use stellar_accounts::verifiers::utils::base64_url_encode;
 
     use super::*;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     const SECRET: [u8; 32] = [
-        33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-        49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+        33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 62, 63, 64,
     ];
 
     /// Devuelve (pubkey_bytes_65, sig_bytes_64) — key como Bytes para coincidir
@@ -46,7 +48,11 @@ mod tests {
     fn sign_digest(e: &Env, digest: &[u8; 32]) -> (Bytes, BytesN<64>) {
         let secret = P256SecretKey::from_slice(&SECRET).unwrap();
         let signing_key = P256SigningKey::from(&secret);
-        let pubkey = secret.public_key().to_encoded_point(false).to_bytes().to_vec();
+        let pubkey = secret
+            .public_key()
+            .to_encoded_point(false)
+            .to_bytes()
+            .to_vec();
         let mut pub_arr = [0u8; 65];
         pub_arr.copy_from_slice(&pubkey);
 
@@ -55,7 +61,10 @@ mod tests {
         let mut sig_arr = [0u8; 64];
         sig_arr.copy_from_slice(&sig_norm.to_bytes());
 
-        (Bytes::from_slice(e, &pub_arr), BytesN::from_array(e, &sig_arr))
+        (
+            Bytes::from_slice(e, &pub_arr),
+            BytesN::from_array(e, &sig_arr),
+        )
     }
 
     fn make_authenticator_data(e: &Env, flags: u8) -> Bytes {
@@ -79,7 +88,8 @@ mod tests {
         let challenge_str = std::str::from_utf8(&encoded).unwrap();
 
         let auth_data = make_authenticator_data(
-            e, AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
+            e,
+            AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
         );
         let client_data = make_client_data(e, challenge_str);
 
@@ -90,7 +100,11 @@ mod tests {
 
         let (key_data, signature) = sign_digest(e, &digest);
 
-        let sig_struct = WebAuthnSigData { signature, authenticator_data: auth_data, client_data };
+        let sig_struct = WebAuthnSigData {
+            signature,
+            authenticator_data: auth_data,
+            client_data,
+        };
         let sig_data_xdr = sig_struct.to_xdr(e);
 
         (Bytes::from_array(e, payload), key_data, sig_data_xdr)
@@ -112,8 +126,7 @@ mod tests {
 
         let (sig_payload, key_data, sig_data) = build_valid_sig_data(&e, &payload);
 
-        assert!(Secp256r1VerifierClient::new(&e, &addr)
-            .verify(&sig_payload, &key_data, &sig_data));
+        assert!(Secp256r1VerifierClient::new(&e, &addr).verify(&sig_payload, &key_data, &sig_data));
     }
 
     #[test]
@@ -130,7 +143,8 @@ mod tests {
         let challenge_str = std::str::from_utf8(&encoded).unwrap();
 
         let auth_data = make_authenticator_data(
-            &e, AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
+            &e,
+            AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
         );
         let client_data = make_client_data(&e, challenge_str);
 
@@ -144,7 +158,11 @@ mod tests {
         sig_arr[0] = sig_arr[0].wrapping_add(1);
         signature = BytesN::from_array(&e, &sig_arr);
 
-        let sig_struct = WebAuthnSigData { signature, authenticator_data: auth_data, client_data };
+        let sig_struct = WebAuthnSigData {
+            signature,
+            authenticator_data: auth_data,
+            client_data,
+        };
         let sig_data_xdr = sig_struct.to_xdr(&e);
 
         Secp256r1VerifierClient::new(&e, &addr).verify(
@@ -163,7 +181,8 @@ mod tests {
         let payload: [u8; 32] = [1u8; 32];
 
         let auth_data = make_authenticator_data(
-            &e, AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
+            &e,
+            AUTH_DATA_FLAGS_UP | AUTH_DATA_FLAGS_UV | AUTH_DATA_FLAGS_BE | AUTH_DATA_FLAGS_BS,
         );
         // client_data con challenge incorrecto
         let client_data = make_client_data(&e, "challenge_incorrecto_AAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -173,7 +192,11 @@ mod tests {
         let digest = e.crypto().sha256(&msg).to_array();
         let (key_data, signature) = sign_digest(&e, &digest);
 
-        let sig_struct = WebAuthnSigData { signature, authenticator_data: auth_data, client_data };
+        let sig_struct = WebAuthnSigData {
+            signature,
+            authenticator_data: auth_data,
+            client_data,
+        };
         let sig_data_xdr = sig_struct.to_xdr(&e);
 
         Secp256r1VerifierClient::new(&e, &addr).verify(
@@ -202,7 +225,11 @@ mod tests {
         let digest = e.crypto().sha256(&msg).to_array();
         let (key_data, signature) = sign_digest(&e, &digest);
 
-        let sig_struct = WebAuthnSigData { signature, authenticator_data: auth_data, client_data };
+        let sig_struct = WebAuthnSigData {
+            signature,
+            authenticator_data: auth_data,
+            client_data,
+        };
 
         Secp256r1VerifierClient::new(&e, &addr).verify(
             &Bytes::from_array(&e, &payload),
@@ -230,7 +257,11 @@ mod tests {
         let digest = e.crypto().sha256(&msg).to_array();
         let (key_data, signature) = sign_digest(&e, &digest);
 
-        let sig_struct = WebAuthnSigData { signature, authenticator_data: auth_data, client_data };
+        let sig_struct = WebAuthnSigData {
+            signature,
+            authenticator_data: auth_data,
+            client_data,
+        };
 
         Secp256r1VerifierClient::new(&e, &addr).verify(
             &Bytes::from_array(&e, &payload),
@@ -298,12 +329,7 @@ impl Verifier for Secp256r1Verifier {
     type KeyData = Bytes;
     type SigData = Bytes;
 
-    fn verify(
-        e: &Env,
-        signature_payload: Bytes,
-        key_data: Bytes,
-        sig_data: Bytes,
-    ) -> bool {
+    fn verify(e: &Env, signature_payload: Bytes, key_data: Bytes, sig_data: Bytes) -> bool {
         let sig_struct = WebAuthnSigData::from_xdr(e, &sig_data)
             .expect("sig_data must be XDR-encoded WebAuthnSigData");
 

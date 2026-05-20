@@ -3,10 +3,10 @@
 //! Wrapper de cross-contract calls al Pool de Blend v2.
 //!
 //! Structs verificados contra blend-contracts-v2 (user.rs, storage.rs):
-//!   - `BlendPositions` coincide exactamente con `Positions` de Blend v2.
-//!   - `BlendReserveData` coincide en nombres y tipos con `ReserveData` de Blend v2.
-//!     (Soroban serializa contracttype structs como XDR maps por clave — el orden
-//!      de campos en Rust no afecta la deserialización.)
+//! - `BlendPositions` coincide exactamente con `Positions` de Blend v2.
+//! - `BlendReserveData` coincide en nombres y tipos con `ReserveData` de Blend v2.
+//!   (Soroban serializa contracttype structs como XDR maps por clave — el orden
+//!   de campos en Rust no afecta la deserialización.)
 //!
 //! RequestType constants (Blend v2 — pool/src/pool/actions.rs):
 //!   0 = Supply             (no colateral)
@@ -59,11 +59,11 @@ pub struct BlendPositions {
 #[contracttype]
 #[derive(Clone)]
 pub struct BlendReserveData {
-    pub b_rate: i128,         // tasa de cambio bToken→underlying, escalada por SCALAR_7
-    pub d_rate: i128,         // tasa de cambio dToken→underlying
-    pub ir_mod: i128,         // modificador de tasa de interés
-    pub b_supply: i128,       // oferta total de bTokens
-    pub d_supply: i128,       // oferta total de dTokens
+    pub b_rate: i128,   // tasa de cambio bToken→underlying, escalada por SCALAR_7
+    pub d_rate: i128,   // tasa de cambio dToken→underlying
+    pub ir_mod: i128,   // modificador de tasa de interés
+    pub b_supply: i128, // oferta total de bTokens
+    pub d_supply: i128, // oferta total de dTokens
     pub backstop_credit: i128,
     pub last_time: u64,
 }
@@ -72,12 +72,7 @@ pub struct BlendReserveData {
 
 /// Deposita `amount` USDC como colateral en el pool de Blend.
 /// Devuelve las posiciones actualizadas del vault.
-pub fn supply_collateral(
-    e: &Env,
-    pool: &Address,
-    usdc: &Address,
-    amount: i128,
-) -> BlendPositions {
+pub fn supply_collateral(e: &Env, pool: &Address, usdc: &Address, amount: i128) -> BlendPositions {
     let vault = e.current_contract_address();
     let mut requests: Vec<BlendRequest> = Vec::new(e);
     requests.push_back(BlendRequest {

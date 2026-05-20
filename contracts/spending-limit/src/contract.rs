@@ -27,7 +27,13 @@ impl Policy for SpendingLimitPolicy {
         context_rule: ContextRule,
         smart_account: Address,
     ) {
-        spending_limit::enforce(e, &context, &authenticated_signers, &context_rule, &smart_account)
+        spending_limit::enforce(
+            e,
+            &context,
+            &authenticated_signers,
+            &context_rule,
+            &smart_account,
+        )
     }
 
     fn install(
@@ -56,12 +62,7 @@ impl SpendingLimitPolicy {
     }
 
     /// Actualiza el monto del límite (requiere auth del Smart Account).
-    pub fn set_limit(
-        e: Env,
-        new_limit: i128,
-        context_rule: ContextRule,
-        smart_account: Address,
-    ) {
+    pub fn set_limit(e: Env, new_limit: i128, context_rule: ContextRule, smart_account: Address) {
         spending_limit::set_spending_limit(&e, new_limit, &context_rule, &smart_account)
     }
 }
@@ -130,8 +131,12 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
             let data = SpendingLimitPolicy::get_data(e.clone(), rule.id, account.clone());
             assert_eq!(data.spending_limit, 1_000_000);
@@ -153,15 +158,23 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SpendingLimitPolicy::enforce(
-                &e, transfer_ctx(&e, 500_000), rule.signers.clone(), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 500_000),
+                rule.signers.clone(),
+                rule.clone(),
+                account.clone(),
             );
             let data = SpendingLimitPolicy::get_data(e.clone(), rule.id, account.clone());
             assert_eq!(data.cached_total_spent, 500_000);
@@ -182,15 +195,23 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SpendingLimitPolicy::enforce(
-                &e, transfer_ctx(&e, 2_000_000), rule.signers.clone(), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 2_000_000),
+                rule.signers.clone(),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -208,8 +229,12 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -234,8 +259,12 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -259,15 +288,23 @@ mod tests {
         e.as_contract(&addr, || {
             SpendingLimitPolicy::install(
                 &e,
-                SpendingLimitAccountParams { spending_limit: 1_000_000, period_ledgers: 100 },
-                rule.clone(), account.clone(),
+                SpendingLimitAccountParams {
+                    spending_limit: 1_000_000,
+                    period_ledgers: 100,
+                },
+                rule.clone(),
+                account.clone(),
             );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SpendingLimitPolicy::enforce(
-                &e, transfer_ctx(&e, 900_000), rule.signers.clone(), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 900_000),
+                rule.signers.clone(),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -276,7 +313,11 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SpendingLimitPolicy::enforce(
-                &e, transfer_ctx(&e, 900_000), rule.signers.clone(), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 900_000),
+                rule.signers.clone(),
+                rule.clone(),
+                account.clone(),
             );
             let data = SpendingLimitPolicy::get_data(e.clone(), rule.id, account.clone());
             assert_eq!(data.cached_total_spent, 900_000);

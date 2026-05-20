@@ -8,7 +8,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    blend_client::{BlendPositions, BlendReserveData, BlendRequest, SCALAR_7},
+    blend_client::{BlendPositions, BlendRequest, BlendReserveData, SCALAR_7},
     contract::{BlendVaultContract, BlendVaultContractClient, UserPosition},
 };
 
@@ -18,8 +18,8 @@ use crate::{
 #[contracttype]
 #[derive(Clone)]
 enum MockPoolKey {
-    BTokens,  // collateral bTokens del vault (reserve_index=0)
-    BRate,    // b_rate actual
+    BTokens, // collateral bTokens del vault (reserve_index=0)
+    BRate,   // b_rate actual
 }
 
 #[contract]
@@ -46,7 +46,11 @@ impl MockBlendPool {
         _to: Address,
         _requests: soroban_sdk::Vec<BlendRequest>,
     ) -> BlendPositions {
-        let b_tokens: i128 = e.storage().instance().get(&MockPoolKey::BTokens).unwrap_or(0);
+        let b_tokens: i128 = e
+            .storage()
+            .instance()
+            .get(&MockPoolKey::BTokens)
+            .unwrap_or(0);
         let mut collateral = Map::new(&e);
         collateral.set(0u32, b_tokens);
         BlendPositions {
@@ -58,7 +62,11 @@ impl MockBlendPool {
 
     /// get_positions: devuelve posiciones actuales del vault
     pub fn get_positions(e: Env, _account: Address) -> BlendPositions {
-        let b_tokens: i128 = e.storage().instance().get(&MockPoolKey::BTokens).unwrap_or(0);
+        let b_tokens: i128 = e
+            .storage()
+            .instance()
+            .get(&MockPoolKey::BTokens)
+            .unwrap_or(0);
         let mut collateral = Map::new(&e);
         collateral.set(0u32, b_tokens);
         BlendPositions {
@@ -70,7 +78,11 @@ impl MockBlendPool {
 
     /// get_reserve_data: devuelve datos del reserve con el b_rate configurado
     pub fn get_reserve_data(e: Env, _asset: Address) -> BlendReserveData {
-        let b_rate: i128 = e.storage().instance().get(&MockPoolKey::BRate).unwrap_or(SCALAR_7);
+        let b_rate: i128 = e
+            .storage()
+            .instance()
+            .get(&MockPoolKey::BRate)
+            .unwrap_or(SCALAR_7);
         BlendReserveData {
             b_rate,
             d_rate: SCALAR_7,
@@ -85,6 +97,8 @@ impl MockBlendPool {
 
 // ── Setup helpers ─────────────────────────────────────────────────────────────
 
+// Test fixture struct — kept for future tests that may need the bundle.
+#[allow(dead_code)]
 struct Setup<'a> {
     e: Env,
     vault: Address,
@@ -102,7 +116,14 @@ fn setup(e: &Env) -> (Address, Address, Address, Address) {
     let accesly = Address::generate(e);
     let vault = e.register(
         BlendVaultContract,
-        (&usdc, &pool, &0u32, &accesly, &String::from_str(e, "Accesly Blend USDC"), &String::from_str(e, "abUSDC")),
+        (
+            &usdc,
+            &pool,
+            &0u32,
+            &accesly,
+            &String::from_str(e, "Accesly Blend USDC"),
+            &String::from_str(e, "abUSDC"),
+        ),
     );
     (vault, pool, usdc, usdc_issuer)
 }
@@ -114,7 +135,7 @@ fn deposit_mints_shares_and_supplies_blend() {
     let e = Env::default();
     e.mock_all_auths();
 
-    let (vault, pool, usdc, usdc_issuer) = setup(&e);
+    let (vault, pool, usdc, _usdc_issuer) = setup(&e);
     let usdc_admin = StellarAssetClient::new(&e, &usdc);
     let user = Address::generate(&e);
 
@@ -201,7 +222,7 @@ fn get_position_shows_yield_when_b_rate_increases() {
     let pos: UserPosition = client.get_position(&user);
     assert_eq!(pos.principal, 1_000_000);
     assert_eq!(pos.current_value, 1_100_000); // 1_000_000 bTokens * 1.1 b_rate
-    assert_eq!(pos.yield_accrued, 100_000);   // 10% yield
+    assert_eq!(pos.yield_accrued, 100_000); // 10% yield
 }
 
 #[test]
@@ -221,9 +242,15 @@ fn total_assets_reads_blend_positions() {
 #[test]
 fn b_tokens_to_usdc_math() {
     // 1000 bTokens * SCALAR_7 / SCALAR_7 = 1000
-    assert_eq!(crate::blend_client::b_tokens_to_usdc(1000, SCALAR_7), Some(1000));
+    assert_eq!(
+        crate::blend_client::b_tokens_to_usdc(1000, SCALAR_7),
+        Some(1000)
+    );
     // 1000 bTokens * (SCALAR_7 * 2) / SCALAR_7 = 2000
-    assert_eq!(crate::blend_client::b_tokens_to_usdc(1000, SCALAR_7 * 2), Some(2000));
+    assert_eq!(
+        crate::blend_client::b_tokens_to_usdc(1000, SCALAR_7 * 2),
+        Some(2000)
+    );
     // cero tokens → cero
     assert_eq!(crate::blend_client::b_tokens_to_usdc(0, SCALAR_7), Some(0));
 }

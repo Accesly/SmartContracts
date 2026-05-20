@@ -27,7 +27,7 @@ use stellar_access::access_control::{
 use stellar_governance::timelock::{
     cancel_operation, execute_operation, get_operation_state, hash_operation, schedule_operation,
     set_execute_operation, set_min_delay as timelock_set_min_delay, Operation, OperationState,
-    TimelockError, Timelock,
+    Timelock, TimelockError,
 };
 use stellar_macros::{only_admin, only_role};
 
@@ -118,7 +118,11 @@ impl CustomAccountInterface for TimelockController {
 
         for (context, meta) in auth_contexts.iter().zip(context_meta) {
             match context.clone() {
-                Context::Contract(ContractContext { contract, fn_name, args }) => {
+                Context::Contract(ContractContext {
+                    contract,
+                    fn_name,
+                    args,
+                }) => {
                     if contract != e.current_contract_address() {
                         panic_with_error!(&e, TimelockError::Unauthorized)
                     }
@@ -132,7 +136,8 @@ impl CustomAccountInterface for TimelockController {
                         args.clone(),
                         meta.predecessor.clone(),
                         meta.salt.clone(),
-                    ).into_val(&e);
+                    )
+                        .into_val(&e);
 
                     let executor = match meta.executor {
                         Some(e) => e,
@@ -181,7 +186,13 @@ impl Timelock for TimelockController {
         delay: u32,
         proposer: Address,
     ) -> BytesN<32> {
-        let operation = Operation { target, function, args, predecessor, salt };
+        let operation = Operation {
+            target,
+            function,
+            args,
+            predecessor,
+            salt,
+        };
         schedule_operation(e, &operation, delay)
     }
 
@@ -204,7 +215,13 @@ impl Timelock for TimelockController {
             ensure_role(e, &EXECUTOR_ROLE, &executor);
             executor.require_auth();
         }
-        let operation = Operation { target, function, args, predecessor, salt };
+        let operation = Operation {
+            target,
+            function,
+            args,
+            predecessor,
+            salt,
+        };
         execute_operation(e, &operation)
     }
 
@@ -231,9 +248,9 @@ mod tests {
     extern crate std;
 
     use soroban_sdk::{
-        contract, contractimpl, symbol_short,
+        contract, contractimpl,
         testutils::{Address as _, Ledger},
-        Address, BytesN, Env, IntoVal, Symbol, Vec,
+        Address, BytesN, Env, Symbol, Vec,
     };
     use stellar_governance::timelock::{
         get_min_delay, get_operation_state, hash_operation, set_execute_operation, OperationState,
@@ -247,7 +264,9 @@ mod tests {
 
     #[contractimpl]
     impl TargetContract {
-        pub fn ping(_e: &Env) -> u32 { 42 }
+        pub fn ping(_e: &Env) -> u32 {
+            42
+        }
     }
 
     fn empty(e: &Env) -> BytesN<32> {
@@ -261,7 +280,10 @@ mod tests {
         proposers.push_back(proposer.clone());
         let mut executors = Vec::new(e);
         executors.push_back(executor.clone());
-        let addr = e.register(TimelockController, (&proposers, &executors, &None::<Address>));
+        let addr = e.register(
+            TimelockController,
+            (&proposers, &executors, &None::<Address>),
+        );
         (addr, proposer, executor)
     }
 

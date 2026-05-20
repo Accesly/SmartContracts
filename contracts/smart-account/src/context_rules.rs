@@ -33,9 +33,7 @@
 //! - `upgrade-rule` (Default): session key + upgrade_rule_policy (solo `upgrade` en target_contract)
 
 use soroban_sdk::{Address, Bytes, BytesN, Env, Map, String, Val, Vec};
-use stellar_accounts::smart_account::{
-    self as smart_account_lib, ContextRuleType, Signer,
-};
+use stellar_accounts::smart_account::{self as smart_account_lib, ContextRuleType, Signer};
 
 /// Instala las context rules base del Smart Account.
 #[allow(clippy::too_many_arguments)]

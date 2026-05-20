@@ -7,8 +7,8 @@
 //! usando una session key que solo puede firmar upgrades del smart account.
 use soroban_sdk::{
     auth::{Context, ContractContext},
-    contract, contracterror, contractimpl, contracttype, panic_with_error,
-    Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
+    Vec,
 };
 use stellar_accounts::{
     policies::Policy,
@@ -77,7 +77,11 @@ enum StorageKey {
 
 fn load_config(e: &Env, smart_account: &Address, rule_id: u32) -> UpgradeRuleConfig {
     let key = StorageKey::Config(smart_account.clone(), rule_id);
-    match e.storage().persistent().get::<StorageKey, UpgradeRuleConfig>(&key) {
+    match e
+        .storage()
+        .persistent()
+        .get::<StorageKey, UpgradeRuleConfig>(&key)
+    {
         Some(cfg) => cfg,
         None => panic_with_error!(e, UpgradeRuleError::NotInstalled),
     }
@@ -86,34 +90,53 @@ fn load_config(e: &Env, smart_account: &Address, rule_id: u32) -> UpgradeRuleCon
 fn save_config(e: &Env, smart_account: &Address, rule_id: u32, cfg: &UpgradeRuleConfig) {
     let key = StorageKey::Config(smart_account.clone(), rule_id);
     e.storage().persistent().set(&key, cfg);
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
 fn remove_config(e: &Env, smart_account: &Address, rule_id: u32) {
-    e.storage().persistent().remove(&StorageKey::Config(smart_account.clone(), rule_id));
+    e.storage()
+        .persistent()
+        .remove(&StorageKey::Config(smart_account.clone(), rule_id));
 }
 
 /// Lee el contador de reglas activas para un smart_account. 0 si nunca ha instalado.
 fn get_rule_count(e: &Env, smart_account: &Address) -> u32 {
     let key = StorageKey::AccountRuleCount(smart_account.clone());
-    e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0)
+    e.storage()
+        .persistent()
+        .get::<StorageKey, u32>(&key)
+        .unwrap_or(0)
 }
 
 /// Incrementa el contador. Llamado al final de install() — el caller ya validó el cap.
 fn inc_rule_count(e: &Env, smart_account: &Address) {
     let key = StorageKey::AccountRuleCount(smart_account.clone());
-    let current = e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0);
+    let current = e
+        .storage()
+        .persistent()
+        .get::<StorageKey, u32>(&key)
+        .unwrap_or(0);
     e.storage().persistent().set(&key, &(current + 1));
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
 /// Decrementa el contador. Llamado en uninstall() para liberar slot.
 fn dec_rule_count(e: &Env, smart_account: &Address) {
     let key = StorageKey::AccountRuleCount(smart_account.clone());
-    let current = e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0);
+    let current = e
+        .storage()
+        .persistent()
+        .get::<StorageKey, u32>(&key)
+        .unwrap_or(0);
     if current > 0 {
         e.storage().persistent().set(&key, &(current - 1));
-        e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
     }
 }
 
@@ -137,7 +160,9 @@ impl Policy for UpgradeRulePolicy {
         let cfg = load_config(e, &smart_account, context_rule.id);
 
         let (contract, fn_name) = match context {
-            Context::Contract(ContractContext { contract, fn_name, .. }) => (contract, fn_name),
+            Context::Contract(ContractContext {
+                contract, fn_name, ..
+            }) => (contract, fn_name),
             _ => panic_with_error!(e, UpgradeRuleError::InvalidFunction),
         };
 
@@ -165,9 +190,14 @@ impl Policy for UpgradeRulePolicy {
         if get_rule_count(e, &smart_account) >= MAX_RULES_PER_ACCOUNT {
             panic_with_error!(e, UpgradeRuleError::TooManyRules);
         }
-        save_config(e, &smart_account, context_rule.id, &UpgradeRuleConfig {
-            target_contract: install_params.target_contract,
-        });
+        save_config(
+            e,
+            &smart_account,
+            context_rule.id,
+            &UpgradeRuleConfig {
+                target_contract: install_params.target_contract,
+            },
+        );
         inc_rule_count(e, &smart_account);
     }
 
@@ -236,9 +266,14 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
             let cfg = load_config(&e, &account, rule.id);
             assert_eq!(cfg.target_contract, target);
         });
@@ -255,16 +290,26 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
     }
 
@@ -280,15 +325,23 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             UpgradeRulePolicy::uninstall(&e, rule.clone(), account.clone());
-            assert!(!e.storage().persistent().has(&StorageKey::Config(account.clone(), rule.id)));
+            assert!(!e
+                .storage()
+                .persistent()
+                .has(&StorageKey::Config(account.clone(), rule.id)));
         });
     }
 
@@ -318,9 +371,14 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -347,9 +405,14 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -375,9 +438,14 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -402,9 +470,14 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            UpgradeRulePolicy::install(&e, UpgradeRuleInstallParams {
-                target_contract: target.clone(),
-            }, rule.clone(), account.clone());
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -412,9 +485,9 @@ mod tests {
             UpgradeRulePolicy::enforce(
                 &e,
                 Context::CreateContractHostFn(soroban_sdk::auth::CreateContractHostFnContext {
-                    executable: soroban_sdk::auth::ContractExecutable::Wasm(
-                        BytesN::from_array(&e, &[0u8; 32])
-                    ),
+                    executable: soroban_sdk::auth::ContractExecutable::Wasm(BytesN::from_array(
+                        &e, &[0u8; 32],
+                    )),
                     salt: BytesN::from_array(&e, &[0u8; 32]),
                 }),
                 Vec::new(&e),
@@ -452,7 +525,9 @@ mod tests {
             e.as_contract(&addr, || {
                 UpgradeRulePolicy::install(
                     &e,
-                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    UpgradeRuleInstallParams {
+                        target_contract: target.clone(),
+                    },
                     make_rule_with_id(&e, i),
                     account.clone(),
                 );
@@ -478,7 +553,9 @@ mod tests {
             e.as_contract(&addr, || {
                 UpgradeRulePolicy::install(
                     &e,
-                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    UpgradeRuleInstallParams {
+                        target_contract: target.clone(),
+                    },
                     make_rule_with_id(&e, i),
                     account.clone(),
                 );
@@ -489,7 +566,9 @@ mod tests {
         e.as_contract(&addr, || {
             UpgradeRulePolicy::install(
                 &e,
-                UpgradeRuleInstallParams { target_contract: target.clone() },
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
                 make_rule_with_id(&e, MAX_RULES_PER_ACCOUNT),
                 account.clone(),
             );
@@ -509,7 +588,9 @@ mod tests {
             e.as_contract(&addr, || {
                 UpgradeRulePolicy::install(
                     &e,
-                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    UpgradeRuleInstallParams {
+                        target_contract: target.clone(),
+                    },
                     make_rule_with_id(&e, i),
                     account.clone(),
                 );
@@ -526,7 +607,9 @@ mod tests {
         e.as_contract(&addr, || {
             UpgradeRulePolicy::install(
                 &e,
-                UpgradeRuleInstallParams { target_contract: target.clone() },
+                UpgradeRuleInstallParams {
+                    target_contract: target.clone(),
+                },
                 make_rule_with_id(&e, MAX_RULES_PER_ACCOUNT),
                 account.clone(),
             );
@@ -548,7 +631,9 @@ mod tests {
             e.as_contract(&addr, || {
                 UpgradeRulePolicy::install(
                     &e,
-                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    UpgradeRuleInstallParams {
+                        target_contract: target.clone(),
+                    },
                     make_rule_with_id(&e, i),
                     account_a.clone(),
                 );
@@ -560,7 +645,9 @@ mod tests {
             e.as_contract(&addr, || {
                 UpgradeRulePolicy::install(
                     &e,
-                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    UpgradeRuleInstallParams {
+                        target_contract: target.clone(),
+                    },
                     make_rule_with_id(&e, i),
                     account_b.clone(),
                 );
@@ -585,7 +672,14 @@ mod tests {
 
         // Insert config directly — bypasses install() which calls require_auth.
         e.as_contract(&addr, || {
-            save_config(&e, &account, rule.id, &UpgradeRuleConfig { target_contract: target.clone() });
+            save_config(
+                &e,
+                &account,
+                rule.id,
+                &UpgradeRuleConfig {
+                    target_contract: target.clone(),
+                },
+            );
         });
 
         e.as_contract(&addr, || {

@@ -13,8 +13,8 @@
 //! - Desactivable por el Smart Account con biométrico (regla admin-cfg).
 use soroban_sdk::{
     auth::{Context, ContractContext},
-    contract, contractimpl, contracttype, panic_with_error,
-    contracterror, Address, Env, Symbol, TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
+    TryFromVal, Vec,
 };
 use stellar_accounts::{
     policies::Policy,
@@ -129,9 +129,15 @@ pub struct YieldInstallParams {
 
 fn load_config(e: &Env, smart_account: &Address, context_rule_id: u32) -> YieldConfig {
     let key = StorageKey::YieldConfig(smart_account.clone(), context_rule_id);
-    match e.storage().persistent().get::<StorageKey, YieldConfig>(&key) {
+    match e
+        .storage()
+        .persistent()
+        .get::<StorageKey, YieldConfig>(&key)
+    {
         Some(cfg) => {
-            e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+            e.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
             cfg
         }
         None => panic_with_error!(e, YieldDistError::NotInstalled),
@@ -141,7 +147,9 @@ fn load_config(e: &Env, smart_account: &Address, context_rule_id: u32) -> YieldC
 fn save_config(e: &Env, smart_account: &Address, context_rule_id: u32, cfg: &YieldConfig) {
     let key = StorageKey::YieldConfig(smart_account.clone(), context_rule_id);
     e.storage().persistent().set(&key, cfg);
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
 // ── Contrato ──────────────────────────────────────────────────────────────────
@@ -179,9 +187,11 @@ impl Policy for YieldDistributionPolicy {
 
         // 2. Contexto debe ser Contract (fail closed)
         let (contract, fn_name, args) = match context {
-            Context::Contract(ContractContext { contract, fn_name, args }) => {
-                (contract, fn_name, args)
-            }
+            Context::Contract(ContractContext {
+                contract,
+                fn_name,
+                args,
+            }) => (contract, fn_name, args),
             _ => panic_with_error!(e, YieldDistError::InvalidContext),
         };
 
@@ -194,14 +204,16 @@ impl Policy for YieldDistributionPolicy {
         }
 
         // transfer(from: Address, to: Address, amount: i128)
-        let from = args.get(0)
+        let from = args
+            .get(0)
             .and_then(|v| Address::try_from_val(e, &v).ok())
             .unwrap_or_else(|| panic_with_error!(e, YieldDistError::InvalidArgs));
         if from != smart_account {
             panic_with_error!(e, YieldDistError::WrongFrom);
         }
 
-        let to = args.get(1)
+        let to = args
+            .get(1)
             .and_then(|v| Address::try_from_val(e, &v).ok())
             .unwrap_or_else(|| panic_with_error!(e, YieldDistError::InvalidArgs));
 
@@ -210,7 +222,8 @@ impl Policy for YieldDistributionPolicy {
             panic_with_error!(e, YieldDistError::UnauthorizedRecipient);
         }
 
-        let amount = args.get(2)
+        let amount = args
+            .get(2)
             .and_then(|v| i128::try_from_val(e, &v).ok())
             .unwrap_or_else(|| panic_with_error!(e, YieldDistError::InvalidArgs));
 
@@ -245,9 +258,12 @@ impl Policy for YieldDistributionPolicy {
             // Validar ratio BPS: amount * (10000 - bps) <= pending_user_amount * bps
             let bps = cfg.accesly_bps as i128;
             let complement = 10_000i128 - bps;
-            let lhs = amount.checked_mul(complement)
+            let lhs = amount
+                .checked_mul(complement)
                 .unwrap_or_else(|| panic_with_error!(e, YieldDistError::InvalidArgs));
-            let rhs = cfg.pending_user_amount.checked_mul(bps)
+            let rhs = cfg
+                .pending_user_amount
+                .checked_mul(bps)
                 .unwrap_or_else(|| panic_with_error!(e, YieldDistError::InvalidArgs));
             if lhs > rhs {
                 panic_with_error!(e, YieldDistError::BpsExceedsRatio);
@@ -315,12 +331,7 @@ impl Policy for YieldDistributionPolicy {
 impl YieldDistributionPolicy {
     /// Activa o desactiva la distribución automática.
     /// Requiere autorización del Smart Account (context rule admin-cfg con biométrico).
-    pub fn set_enabled(
-        e: Env,
-        context_rule_id: u32,
-        smart_account: Address,
-        enabled: bool,
-    ) {
+    pub fn set_enabled(e: Env, context_rule_id: u32, smart_account: Address, enabled: bool) {
         smart_account.require_auth();
         let mut cfg = load_config(&e, &smart_account, context_rule_id);
         cfg.enabled = enabled;
@@ -328,28 +339,20 @@ impl YieldDistributionPolicy {
     }
 
     /// Consulta la configuración actual de yield para un Smart Account.
-    pub fn get_config(
-        e: Env,
-        context_rule_id: u32,
-        smart_account: Address,
-    ) -> YieldConfig {
+    pub fn get_config(e: Env, context_rule_id: u32, smart_account: Address) -> YieldConfig {
         load_config(&e, &smart_account, context_rule_id)
     }
 
     /// Calcula cuántos ledgers faltan para la próxima distribución permitida.
     /// Devuelve 0 si ya es posible distribuir.
-    pub fn ledgers_until_next(
-        e: Env,
-        context_rule_id: u32,
-        smart_account: Address,
-    ) -> u32 {
+    pub fn ledgers_until_next(e: Env, context_rule_id: u32, smart_account: Address) -> u32 {
         let cfg = load_config(&e, &smart_account, context_rule_id);
         let current = e.ledger().sequence();
         if cfg.last_distribution == 0 {
             return 0;
         }
         let next = cfg.last_distribution.saturating_add(cfg.period_ledgers);
-        if current >= next { 0 } else { next - current }
+        next.saturating_sub(current)
     }
 }
 
@@ -385,7 +388,13 @@ mod tests {
         }
     }
 
-    fn make_params(_e: &Env, cetes: &Address, accesly: &Address, user_wallet: &Address, relayer: &Address) -> YieldInstallParams {
+    fn make_params(
+        _e: &Env,
+        cetes: &Address,
+        accesly: &Address,
+        user_wallet: &Address,
+        relayer: &Address,
+    ) -> YieldInstallParams {
         YieldInstallParams {
             cetes_contract: cetes.clone(),
             accesly_wallet: accesly.clone(),
@@ -397,7 +406,13 @@ mod tests {
         }
     }
 
-    fn transfer_ctx(e: &Env, cetes: &Address, from: &Address, to: &Address, amount: i128) -> Context {
+    fn transfer_ctx(
+        e: &Env,
+        cetes: &Address,
+        from: &Address,
+        to: &Address,
+        amount: i128,
+    ) -> Context {
         let mut args = Vec::new(e);
         args.push_back(from.clone().into_val(e));
         args.push_back(to.clone().into_val(e));
@@ -424,7 +439,12 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
             let cfg = YieldDistributionPolicy::get_config(e.clone(), rule.id, account.clone());
             assert_eq!(cfg.cetes_contract, cetes);
             assert_eq!(cfg.accesly_bps, 5000);
@@ -448,12 +468,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
     }
 
@@ -532,7 +562,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -570,7 +605,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -604,15 +644,23 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // User leg must come first — sets pending_user_amount.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -620,8 +668,11 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
             let cfg = YieldDistributionPolicy::get_config(e.clone(), rule.id, account.clone());
             assert_eq!(cfg.last_distribution, 1000);
@@ -642,14 +693,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
             let cfg = YieldDistributionPolicy::get_config(e.clone(), rule.id, account.clone());
             assert_eq!(cfg.last_distribution, 0);
@@ -670,7 +729,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -682,8 +746,11 @@ mod tests {
         // the Disabled check fires immediately after.
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -703,22 +770,33 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // Cycle 1: user then accesly — sets last_distribution = 1000.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -726,15 +804,21 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -754,14 +838,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &wrong, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &wrong, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -780,7 +872,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -790,7 +887,13 @@ mod tests {
                 fn_name: Symbol::new(&e, "approve"),
                 args: soroban_sdk::Vec::new(&e),
             });
-            YieldDistributionPolicy::enforce(&e, bad_ctx, Vec::new(&e), rule.clone(), account.clone());
+            YieldDistributionPolicy::enforce(
+                &e,
+                bad_ctx,
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
+            );
         });
     }
 
@@ -809,14 +912,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &attacker, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &attacker, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -843,8 +954,11 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 200_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 200_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -863,14 +977,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, -1),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, -1),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -889,14 +1011,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 0),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 0),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -916,14 +1046,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &attacker, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &attacker, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -961,8 +1099,11 @@ mod tests {
 
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -981,40 +1122,58 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // Cycle 1.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
-        e.ledger().with_mut(|l| l.sequence_number = 1000 + WEEK_IN_LEDGERS);
+        e.ledger()
+            .with_mut(|l| l.sequence_number = 1000 + WEEK_IN_LEDGERS);
 
         // Cycle 2 after period elapsed.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
             let cfg = YieldDistributionPolicy::get_config(e.clone(), rule.id, account.clone());
             assert_eq!(cfg.last_distribution, 1000 + WEEK_IN_LEDGERS);
@@ -1036,8 +1195,14 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
-            let remaining = YieldDistributionPolicy::ledgers_until_next(e.clone(), rule.id, account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
+            let remaining =
+                YieldDistributionPolicy::ledgers_until_next(e.clone(), rule.id, account.clone());
             assert_eq!(remaining, 0);
         });
     }
@@ -1056,24 +1221,36 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // User leg first, then accesly leg sets last_distribution.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
-            let remaining = YieldDistributionPolicy::ledgers_until_next(e.clone(), rule.id, account.clone());
+            let remaining =
+                YieldDistributionPolicy::ledgers_until_next(e.clone(), rule.id, account.clone());
             assert_eq!(remaining, WEEK_IN_LEDGERS);
         });
     }
@@ -1094,15 +1271,23 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // Accesly transfer without prior user transfer — must fail (#7013).
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -1122,15 +1307,23 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // First user transfer — OK.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -1138,8 +1331,11 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -1159,15 +1355,23 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             // accesly_bps = 5000 (50%) → accesly can get at most user_amount
-            YieldDistributionPolicy::install(&e, make_params(&e, &cetes, &accesly, &user_wallet, &relayer), rule.clone(), account.clone());
+            YieldDistributionPolicy::install(
+                &e,
+                make_params(&e, &cetes, &accesly, &user_wallet, &relayer),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         // User gets 100 → accesly can get at most 100 with bps=5000.
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &user_wallet, 100),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &user_wallet, 100),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -1175,8 +1379,11 @@ mod tests {
         e.mock_all_auths();
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 101),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 101),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -1218,8 +1425,11 @@ mod tests {
         // Even if smart_account were mocked alone, relayer.require_auth() would follow.
         e.as_contract(&addr, || {
             YieldDistributionPolicy::enforce(
-                &e, transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, &cetes, &account, &accesly, 500_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }

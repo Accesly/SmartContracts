@@ -11,6 +11,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pin OZ Stellar reference repo to the same tag we use locally (=0.7.1).
+  # Bump together with workspace Cargo.toml when upgrading OZ.
+  OZ_REFERENCE_REPO: https://github.com/OpenZeppelin/stellar-contracts.git
+  OZ_REFERENCE_TAG: v0.7.1
 
 jobs:
   cargo-audit:
@@ -18,33 +22,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - name: Clone oz-reference (${{ env.OZ_REFERENCE_TAG }})
+        run: git clone --depth 1 --branch ${{ env.OZ_REFERENCE_TAG }} ${{ env.OZ_REFERENCE_REPO }} oz-reference
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit
       - name: cargo audit
-        # The OZ stellar-* deps are referenced by path; cargo audit only inspects
-        # crates.io deps. This catches CVEs in transitive deps like ed25519-dalek.
-        run: cargo audit --deny warnings
+        # Default behaviour: fail on vulnerabilities, allow informational
+        # warnings (unmaintained, unsound notices in transitive deps such as
+        # `derivative`, `paste`, `rand` that ship with soroban-env-host).
+        # If a real CVE lands, the job fails as expected.
+        working-directory: accesly-contracts
+        run: cargo audit
 
   cargo-deny:
     name: cargo deny (license check)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - name: Clone oz-reference (${{ env.OZ_REFERENCE_TAG }})
+        # cargo-deny runs `cargo metadata` which resolves all workspace deps,
+        # including the path-referenced stellar-* crates living in ../oz-reference.
+        # Without this clone the action fails with "failed to load manifest for
+        # dependency `stellar-accounts`".
+        run: git clone --depth 1 --branch ${{ env.OZ_REFERENCE_TAG }} ${{ env.OZ_REFERENCE_REPO }} oz-reference
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses
-          # We only enforce license policy here; bans/advisories/sources are
-          # covered by cargo-audit and dependabot.
           arguments: --workspace
+          manifest-path: accesly-contracts/Cargo.toml
 
-  gitleaks:
-    name: gitleaks (secret scan)
+  secret-scan:
+    name: trufflehog (secret scan)
     runs-on: ubuntu-latest
+    # gitleaks-action@v2 requires a paid license for organization repos
+    # (Accesly/* is an org). trufflehog is OSS and works for orgs out of the box.
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trufflehog secret scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

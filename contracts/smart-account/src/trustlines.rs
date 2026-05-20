@@ -46,4 +46,3 @@ pub fn emit_trustlines_required(e: &Env, assets: Vec<StellarAsset>) {
     }
     .publish(e);
 }
-

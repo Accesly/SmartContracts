@@ -12,8 +12,8 @@
 //!      cada request use un tipo permitido dentro del límite de monto.
 use soroban_sdk::{
     auth::{Context, ContractContext},
-    contract, contracterror, contractimpl, contracttype, panic_with_error,
-    Address, Env, Symbol, TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
+    TryFromVal, Vec,
 };
 use stellar_accounts::{
     policies::Policy,
@@ -95,9 +95,15 @@ enum StorageKey {
 
 fn load_config(e: &Env, smart_account: &Address, rule_id: u32) -> BlendRuleConfig {
     let key = StorageKey::Config(smart_account.clone(), rule_id);
-    match e.storage().persistent().get::<StorageKey, BlendRuleConfig>(&key) {
+    match e
+        .storage()
+        .persistent()
+        .get::<StorageKey, BlendRuleConfig>(&key)
+    {
         Some(cfg) => {
-            e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+            e.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
             cfg
         }
         None => panic_with_error!(e, BlendRuleError::NotInstalled),
@@ -107,11 +113,15 @@ fn load_config(e: &Env, smart_account: &Address, rule_id: u32) -> BlendRuleConfi
 fn save_config(e: &Env, smart_account: &Address, rule_id: u32, cfg: &BlendRuleConfig) {
     let key = StorageKey::Config(smart_account.clone(), rule_id);
     e.storage().persistent().set(&key, cfg);
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
 fn remove_config(e: &Env, smart_account: &Address, rule_id: u32) {
-    e.storage().persistent().remove(&StorageKey::Config(smart_account.clone(), rule_id));
+    e.storage()
+        .persistent()
+        .remove(&StorageKey::Config(smart_account.clone(), rule_id));
 }
 
 // ── Contrato ──────────────────────────────────────────────────────────────────
@@ -133,9 +143,11 @@ impl Policy for BlendRulePolicy {
         let cfg = load_config(e, &smart_account, context_rule.id);
 
         let (contract, fn_name, args) = match context {
-            Context::Contract(ContractContext { contract, fn_name, args }) => {
-                (contract, fn_name, args)
-            }
+            Context::Contract(ContractContext {
+                contract,
+                fn_name,
+                args,
+            }) => (contract, fn_name, args),
             _ => panic_with_error!(e, BlendRuleError::UnauthorizedFunction),
         };
 
@@ -174,7 +186,7 @@ impl Policy for BlendRulePolicy {
             .unwrap_or_else(|| panic_with_error!(e, BlendRuleError::InvalidArgs));
 
         for req in requests.iter() {
-            if !cfg.allowed_request_types.contains(&req.request_type) {
+            if !cfg.allowed_request_types.contains(req.request_type) {
                 panic_with_error!(e, BlendRuleError::UnauthorizedRequestType);
             }
             if cfg.max_amount_per_request > 0 && req.amount > cfg.max_amount_per_request {
@@ -194,11 +206,16 @@ impl Policy for BlendRulePolicy {
         if e.storage().persistent().has(&key) {
             panic_with_error!(e, BlendRuleError::AlreadyInstalled);
         }
-        save_config(e, &smart_account, context_rule.id, &BlendRuleConfig {
-            pool: install_params.pool,
-            allowed_request_types: install_params.allowed_request_types,
-            max_amount_per_request: install_params.max_amount_per_request,
-        });
+        save_config(
+            e,
+            &smart_account,
+            context_rule.id,
+            &BlendRuleConfig {
+                pool: install_params.pool,
+                allowed_request_types: install_params.allowed_request_types,
+                max_amount_per_request: install_params.max_amount_per_request,
+            },
+        );
     }
 
     fn uninstall(e: &Env, context_rule: ContextRule, smart_account: Address) {
@@ -253,12 +270,7 @@ mod tests {
         v
     }
 
-    fn submit_ctx(
-        e: &Env,
-        pool: &Address,
-        from: &Address,
-        requests: Vec<Request>,
-    ) -> Context {
+    fn submit_ctx(e: &Env, pool: &Address, from: &Address, requests: Vec<Request>) -> Context {
         let mut args = Vec::new(e);
         args.push_back(from.clone().into_val(e));
         args.push_back(from.clone().into_val(e)); // spender
@@ -314,20 +326,30 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
     }
 
@@ -343,17 +365,25 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             BlendRulePolicy::uninstall(&e, rule.clone(), account.clone());
-            assert!(!e.storage().persistent().has(&StorageKey::Config(account.clone(), rule.id)));
+            assert!(!e
+                .storage()
+                .persistent()
+                .has(&StorageKey::Config(account.clone(), rule.id)));
         });
     }
 
@@ -383,11 +413,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, 1_000_000));
@@ -413,11 +448,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, 1_000_000));
@@ -442,11 +482,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e), // no incluye BORROW
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e), // no incluye BORROW
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_BORROW, 1_000_000));
@@ -471,11 +516,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 500_000,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 500_000,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, 1_000_000)); // > 500_000
@@ -501,11 +551,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, 1_000_000));
@@ -531,11 +586,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let ctx = Context::Contract(ContractContext {
                 contract: pool.clone(),
@@ -558,19 +618,24 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0,
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0,
+                },
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&addr, || {
             // Build context with to = attacker (not smart_account) — must be rejected
             let mut args = Vec::new(&e);
-            args.push_back(account.clone().into_val(&e));   // args[0] = from = account ✓
-            args.push_back(account.clone().into_val(&e));   // args[1] = spender
-            args.push_back(attacker.clone().into_val(&e));  // args[2] = to = attacker ← wrong
+            args.push_back(account.clone().into_val(&e)); // args[0] = from = account ✓
+            args.push_back(account.clone().into_val(&e)); // args[1] = spender
+            args.push_back(attacker.clone().into_val(&e)); // args[2] = to = attacker ← wrong
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, 1_000_000));
             args.push_back(reqs.into_val(&e));
@@ -593,11 +658,16 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            BlendRulePolicy::install(&e, BlendRuleInstallParams {
-                pool: pool.clone(),
-                allowed_request_types: default_types(&e),
-                max_amount_per_request: 0, // sin límite
-            }, rule.clone(), account.clone());
+            BlendRulePolicy::install(
+                &e,
+                BlendRuleInstallParams {
+                    pool: pool.clone(),
+                    allowed_request_types: default_types(&e),
+                    max_amount_per_request: 0, // sin límite
+                },
+                rule.clone(),
+                account.clone(),
+            );
 
             let mut reqs = Vec::new(&e);
             reqs.push_back(make_request(&e, REQUEST_SUPPLY, i128::MAX));
