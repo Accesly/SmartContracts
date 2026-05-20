@@ -1,0 +1,28 @@
+[package]
+name = "accesly-integration-tests"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+# Pure-test crate. Holds no production code, only cross-contract scenarios
+# that exercise multiple contracts in the same Env.
+[lib]
+doctest = false
+
+# No regular [dependencies] on purpose — when `cargo build --target wasm32v1-none`
+# runs across the workspace, this crate compiles to an empty rlib on wasm32
+# (dev-dependencies are skipped). Tests run via `cargo test -p accesly-integration-tests`
+# on the host target.
+
+[dev-dependencies]
+soroban-sdk      = { workspace = true, features = ["testutils"] }
+stellar-accounts = { workspace = true }
+ed25519-dalek    = { workspace = true }
+
+accesly-smart-account      = { path = "../smart-account" }
+accesly-ed25519-verifier   = { path = "../ed25519-verifier" }
+accesly-secp256r1-verifier = { path = "../secp256r1-verifier" }
+accesly-zk-email-verifier  = { path = "../zk-email-verifier" }
+accesly-spending-limit     = { path = "../spending-limit" }
+accesly-yield-distribution = { path = "../yield-distribution" }
+accesly-governance         = { path = "../governance" }

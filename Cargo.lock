@@ -47,6 +47,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesly-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "accesly-ed25519-verifier",
+ "accesly-governance",
+ "accesly-secp256r1-verifier",
+ "accesly-smart-account",
+ "accesly-spending-limit",
+ "accesly-yield-distribution",
+ "accesly-zk-email-verifier",
+ "ed25519-dalek",
+ "soroban-sdk",
+ "stellar-accounts",
+]
+
+[[package]]
 name = "accesly-secp256r1-verifier"
 version = "0.1.0"
 dependencies = [

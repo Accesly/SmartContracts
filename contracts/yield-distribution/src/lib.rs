@@ -1,4 +1,7 @@
 #![no_std]
 
-mod contract;
-pub use contract::{YieldDistributionPolicy, YieldInstallParams, YieldConfig};
+pub mod contract;
+pub use contract::{
+    YieldConfig, YieldDistributionPolicy, YieldDistributionPolicyClient, YieldInstallParams,
+    WEEK_IN_LEDGERS,
+};

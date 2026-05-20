@@ -1,21 +1,24 @@
-# Rust's output directory
+# Rust output
 target
 
-# Local settings
+# Local Stellar/Soroban state
 .soroban
 .stellar
 
-# Archivos internos — no subir al repo público
-Accesly_Security_Vulnerabilities.md
-Accesly_Almanax_Scan_Apr25.md
-Accesly_Almanax_Scan_Apr25_v2.md
-Accesly_RiskAcceptance_Scan3_Issue1.md
-Accesly_RiskAcceptance_Scan4_ABI_Drift.md
-daniellagart4-sys-accesly-smartcontracts-*.json
-Accesly_RiskAcceptance_Issue5.md
+# Internal documentation — not for the public repo
+docs/
 Pendientes_Fase2.md
 Testnet_Deployment.md
+Accesly_Context_v7_for_ClaudeCode.md
+Accesly_Security_Vulnerabilities.md
+Accesly_Almanax_Scan_*.md
+Accesly_RiskAcceptance_*.md
 
-# Editor y herramientas locales
+# Almanax raw findings (per-scan JSON dumps)
+*-findings-*.json
+
+# Editor and tooling
 .vscode/
 .claude/
+
+# Node (scripts/blend-yield-init has its own .gitignore for node_modules)

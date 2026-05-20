@@ -1,29 +1,43 @@
 //! # Context Rules predefinidas (Issues 1.4 y 1.9)
 //!
-//! Inicializa las 5 context rules base en el constructor del Smart Account.
+//! Inicializa las context rules base en el constructor del Smart Account.
 //!
-//! | ID | Nombre        | ContextRuleType           | Signers               | Policies           |
-//! |----|---------------|---------------------------|-----------------------|--------------------|
-//! |  0 | biometric-tx  | Default                   | ed25519 (External)    | spending_limit     |
-//! |  1 | admin-cfg     | Default                   | ed25519 (External)    | —                  |
-//! |  2 | zk-recovery   | Default                   | zk_email (External)   | —                  |
-//! |  3 | sep10-auth    | Default                   | secp256r1 (External)  | —                  |
-//! |  4 | yield-auto    | CallContract(cetes)       | —                     | yield_policy       |
+//! ## Estructura
 //!
-//! Reglas dinámicas (añadidas por el SDK en runtime):
-//! - "session-key" (Default): External signer (session ed25519) + session_key_policy
-//! - "allowlist-tx" (CallContract(target)): External signer (session key) sin policy
+//! | IDs               | Nombre        | ContextRuleType              | Signers              | Policies         |
+//! |-------------------|---------------|------------------------------|----------------------|------------------|
+//! | 0 .. N-1          | biometric-tx  | CallContract(tx_target[i])   | ed25519 (External)   | spending_limit   |
+//! | N                 | admin-cfg     | Default                      | ed25519 (External)   | —                |
+//! | N+1               | zk-recovery   | Default                      | zk_email (External)  | —                |
+//! | N+2               | sep10-auth    | Default                      | secp256r1 (External) | —                |
+//! | N+3               | yield-auto    | CallContract(cetes)          | —                    | yield_policy     |
 //!
+//! Donde `N = tx_targets.len()`. Si `tx_targets` está vacío, no se instala
+//! ninguna regla `biometric-tx` en el constructor — el SDK puede agregarlas
+//! después vía `admin-cfg`.
 //!
-//! Reglas dinámicas instaladas por el SDK (via admin-cfg):
-//! - "blend-rule" (Default): session key + blend_rule_policy (restrict pool + request types + max amount)
-//! - "upgrade-rule" (Default): session key + upgrade_rule_policy (solo `upgrade` en target_contract)
+//! ## ¿Por qué una regla biometric-tx por token?
+//!
+//! La policy `SpendingLimit` de OZ stellar-accounts v0.7.x hard-rechaza
+//! cualquier `ContextRule` cuyo `context_type` no sea `CallContract(_)` (error
+//! `OnlyCallContractAllowed = 3227`). Como spending-limit es intrínsecamente
+//! por-contrato, instalamos una regla por token bajo enforcement. `spending_limit_params`
+//! se reutiliza para todas (mismo límite por token; si en el futuro se necesitan
+//! límites distintos por token, cambiar el parámetro a `Map<Address, Val>`).
+//!
+//! ## Reglas dinámicas (añadidas por el SDK en runtime)
+//!
+//! - `session-key` (Default): External signer (session ed25519) + session_key_policy
+//! - `allowlist-tx` (CallContract(target)): External signer (session key) sin policy
+//! - `blend-rule` (Default): session key + blend_rule_policy (restrict pool + request types + max amount)
+//! - `upgrade-rule` (Default): session key + upgrade_rule_policy (solo `upgrade` en target_contract)
+
 use soroban_sdk::{Address, Bytes, BytesN, Env, Map, String, Val, Vec};
 use stellar_accounts::smart_account::{
     self as smart_account_lib, ContextRuleType, Signer,
 };
 
-/// Instala las 5 context rules base.
+/// Instala las context rules base del Smart Account.
 #[allow(clippy::too_many_arguments)]
 pub fn setup_context_rules(
     e: &Env,
@@ -34,6 +48,7 @@ pub fn setup_context_rules(
     secp256r1_verifier: &Address,
     spending_limit_policy: &Address,
     spending_limit_params: Val,
+    tx_targets: &Vec<Address>,
     zk_email_verifier: &Address,
     yield_policy: &Address,
     yield_params: Val,
@@ -59,9 +74,11 @@ pub fn setup_context_rules(
         Bytes::from_slice(e, &secp256r1_pubkey.to_array()),
     );
 
-    // ── Regla 0: biometric-tx ─────────────────────────────────────────────────
-    // Transferencias normales: biométrico ed25519 + spending limit.
-    {
+    // ── Reglas biometric-tx (una por token en tx_targets) ────────────────────
+    // Transferencias normales: biométrico ed25519 + spending_limit por contrato.
+    // El nombre se repite a propósito — las reglas se distinguen por su ID interno
+    // y su CallContract(target). El SDK identifica cada regla por el target del context_type.
+    for target in tx_targets.iter() {
         let mut signers: Vec<Signer> = Vec::new(e);
         signers.push_back(owner_signer.clone());
         let mut policies: Map<Address, Val> = Map::new(e);
@@ -69,7 +86,7 @@ pub fn setup_context_rules(
 
         smart_account_lib::add_context_rule(
             e,
-            &ContextRuleType::Default,
+            &ContextRuleType::CallContract(target),
             &String::from_str(e, "biometric-tx"),
             None,
             &signers,
@@ -77,7 +94,7 @@ pub fn setup_context_rules(
         );
     }
 
-    // ── Regla 1: admin-cfg ────────────────────────────────────────────────────
+    // ── Regla admin-cfg ───────────────────────────────────────────────────────
     // Operaciones de configuración: biométrico ed25519 estricto, sin policies.
     // Cubre: cambiar signers, cambiar context rules, desactivar yield, revocar sesiones.
     {
@@ -95,7 +112,7 @@ pub fn setup_context_rules(
         );
     }
 
-    // ── Regla 2: zk-recovery ─────────────────────────────────────────────────
+    // ── Regla zk-recovery ─────────────────────────────────────────────────────
     // Recovery por ZK proof de email. Autoriza cambiar el signer principal.
     {
         let mut signers: Vec<Signer> = Vec::new(e);
@@ -112,7 +129,7 @@ pub fn setup_context_rules(
         );
     }
 
-    // ── Regla 3: sep10-auth ───────────────────────────────────────────────────
+    // ── Regla sep10-auth ──────────────────────────────────────────────────────
     // SEP-10 challenge-response con passkey (secp256r1). Solo auth, no transacciones.
     {
         let mut signers: Vec<Signer> = Vec::new(e);
@@ -129,7 +146,7 @@ pub fn setup_context_rules(
         );
     }
 
-    // ── Regla 4: yield-auto ───────────────────────────────────────────────────
+    // ── Regla yield-auto ──────────────────────────────────────────────────────
     // Distribución automática de yield CETES. Sin firma del usuario (relayer Lambda).
     // Solo autoriza transfer() SEP-41 sobre el contrato CETES (yield-distribution policy).
     {

@@ -13,15 +13,19 @@
 //!
 //! ## Context Rules
 //!
-//! | ID | Nombre       | Cuándo se usa                                      |
-//! |----|--------------|----------------------------------------------------|
-//! |  0 | biometric-tx | Transferencias normales (biométrico + spending limit) |
-//! |  1 | admin-cfg    | Cambiar signers/rules/upgrade (biométrico estricto) |
-//! |  2 | zk-recovery  | Recovery por ZK proof de email                     |
-//! |  3 | sep10-auth   | SEP-10 challenge (passkey secp256r1)                |
-//! |  4 | yield-auto   | Distribución automática yield CETES (sin firma)     |
-//! | +N | session-key  | Pagos pequeños con session key temporal             |
-//! | +N | allowlist-tx | Llamadas a contratos terceros permitidos            |
+//! | IDs               | Nombre       | Cuándo se usa                                      |
+//! |-------------------|--------------|----------------------------------------------------|
+//! | 0 .. N-1          | biometric-tx | Transferencias normales (biométrico + spending limit). Una regla por token en `tx_targets` (`CallContract(target)`). |
+//! | N                 | admin-cfg    | Cambiar signers/rules/upgrade (biométrico estricto) |
+//! | N+1               | zk-recovery  | Recovery por ZK proof de email                     |
+//! | N+2               | sep10-auth   | SEP-10 challenge (passkey secp256r1)                |
+//! | N+3               | yield-auto   | Distribución automática yield CETES (sin firma)     |
+//! | dinámica          | session-key  | Pagos pequeños con session key temporal             |
+//! | dinámica          | allowlist-tx | Llamadas a contratos terceros permitidos            |
+//!
+//! Si `tx_targets` está vacío, no se instala ninguna regla `biometric-tx` en el
+//! constructor — el SDK puede agregarlas después vía `admin-cfg`. `spending_limit_params`
+//! se aplica con los mismos valores a cada regla `biometric-tx` instalada.
 //!
 //! ## Upgrade
 //!
@@ -85,7 +89,14 @@ impl AcceslySmartAccount {
     /// * `secp256r1_verifier`     — Dirección del Secp256r1Verifier compartido.
     /// * `spending_limit_policy`  — Dirección del SpendingLimitPolicy compartido.
     /// * `spending_limit_params`  — Parámetros de instalación del spending limit
-    ///   (XDR-encoded SpendingLimitAccountParams).
+    ///   (XDR-encoded SpendingLimitAccountParams). Se reutilizan para cada entry de
+    ///   `tx_targets` (mismo límite y ventana por token).
+    /// * `tx_targets`             — Direcciones de los contratos de token (SAC) donde
+    ///   el usuario quiere que aplique el spending limit. Por cada entry se crea una
+    ///   regla `biometric-tx` con `CallContract(target)` + spending_limit. Si está vacía,
+    ///   no se instala ninguna regla biometric-tx — el SDK debe agregarlas dinámicamente
+    ///   vía `admin-cfg` (requerido por OZ v0.7.x, que rechaza spending-limit sobre reglas
+    ///   `Default`).
     /// * `zk_email_verifier`      — Dirección del ZkEmailVerifier compartido.
     /// * `yield_policy`           — Dirección del YieldDistributionPolicy compartido.
     /// * `yield_params`           — Parámetros de instalación del yield policy
@@ -104,6 +115,7 @@ impl AcceslySmartAccount {
         secp256r1_verifier: Address,
         spending_limit_policy: Address,
         spending_limit_params: Val,
+        tx_targets: Vec<Address>,
         zk_email_verifier: Address,
         yield_policy: Address,
         yield_params: Val,
@@ -126,6 +138,7 @@ impl AcceslySmartAccount {
             &secp256r1_verifier,
             &spending_limit_policy,
             spending_limit_params,
+            &tx_targets,
             &zk_email_verifier,
             &yield_policy,
             yield_params,

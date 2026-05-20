@@ -23,7 +23,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 # ── Config ────────────────────────────────────────────────────────────────────
 NETWORK="testnet"
-ACCOUNT="accesly"
+ACCOUNT="accesly-deployer"
 WASM_DIR="target/wasm32v1-none/release"
 OUT_FILE="scripts/deployed_addresses.env"
 
@@ -159,7 +159,7 @@ stellar contract deploy \
     -- \
     --proposers "[\"$ACCESLY_ADDR\"]" \
     --executors "[\"$ACCESLY_ADDR\"]" \
-    --admin    "$ACCESLY_ADDR"
+    --admin    "\"$ACCESLY_ADDR\""
 GOVERNANCE=$(addr_of "accesly-governance")
 info "governance → $GOVERNANCE"
 
@@ -175,18 +175,32 @@ stellar contract deploy \
     --usdc_address        "$USDC_SAC" \
     --blend_pool          "$BLEND_POOL" \
     --usdc_reserve_index  "$USDC_RESERVE_INDEX" \
+    --accesly_wallet      "$ACCESLY_ADDR" \
     --name                "Accesly Blend USDC" \
     --symbol              "abUSDC"
 BLEND_VAULT=$(addr_of "accesly-blend-vault")
 info "blend-vault → $BLEND_VAULT"
 
-# ── 11. Blend Yield Policy (sin constructor) ──────────────────────────────────
-# El constructor no recibe args — el vault address se pasa en cada llamada enforce.
+# ── 11. Blend Yield Policy (deploy sin ctor, luego init vía invoke) ──────────
+# stellar contract deploy v26 tiene un bug con CreateContractV2 para este contrato.
+# Se despliega sin constructor y luego se llama init() separado.
 deploy_no_ctor "accesly-blend-yield-policy" "accesly_blend_yield_policy.wasm"
 BLEND_YIELD_POLICY=$(addr_of "accesly-blend-yield-policy")
 info "blend-yield-policy → $BLEND_YIELD_POLICY"
+# NOTE: init() cannot be called via stellar CLI v26 (bug with OZ Policy contracts + Address args).
+# The canonical accesly_wallet validation in install() is skipped until init() is called manually.
 
-# ── 12. Smart Account (template — 1 deploy compartido) ────────────────────────
+# ── 12. Blend Rule Policy (sin constructor) ───────────────────────────────────
+deploy_no_ctor "accesly-blend-rule" "accesly_blend_rule.wasm"
+BLEND_RULE=$(addr_of "accesly-blend-rule")
+info "blend-rule → $BLEND_RULE"
+
+# ── 13. Upgrade Rule Policy (sin constructor) ─────────────────────────────────
+deploy_no_ctor "accesly-upgrade-rule" "accesly_upgrade_rule.wasm"
+UPGRADE_RULE=$(addr_of "accesly-upgrade-rule")
+info "upgrade-rule → $UPGRADE_RULE"
+
+# ── 14. Smart Account (template — 1 deploy compartido) ────────────────────────
 # NOTA: El Smart Account es un template que se instancia por usuario.
 # Este deploy es el contrato base; cada usuario deploy su propia instancia
 # con sus propias claves. Ver SDK para el flujo de deploy por usuario.
@@ -229,6 +243,10 @@ BLEND_YIELD_POLICY=$BLEND_YIELD_POLICY
 GOVERNANCE=$GOVERNANCE
 BLEND_VAULT=$BLEND_VAULT
 
+# Additional Policies
+BLEND_RULE_POLICY=$BLEND_RULE
+UPGRADE_RULE_POLICY=$UPGRADE_RULE
+
 # Blend Testnet (externos, no cambian)
 BLEND_POOL=$BLEND_POOL
 USDC_SAC=$USDC_SAC
@@ -257,6 +275,8 @@ echo "  yield-distribution:    $YIELD_DISTRIBUTION"
 echo "  governance:            $GOVERNANCE"
 echo "  blend-vault:           $BLEND_VAULT"
 echo "  blend-yield-policy:    $BLEND_YIELD_POLICY"
+echo "  blend-rule:            $BLEND_RULE"
+echo "  upgrade-rule:          $UPGRADE_RULE"
 echo "  smart-account hash:    $SMART_ACCOUNT_HASH"
 echo "  CETES contract:        $CETES_CONTRACT"
 echo "  USDC reserve index:    $USDC_RESERVE_INDEX (detectado automáticamente)"

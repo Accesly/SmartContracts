@@ -1,0 +1,13 @@
+{
+  "name": "blend-yield-init",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Workaround for Stellar CLI v26 bug: invoke blend-yield-policy.init(accesly_wallet) via @stellar/stellar-sdk",
+  "type": "module",
+  "scripts": {
+    "start": "node init.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.0.0"
+  }
+}

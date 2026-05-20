@@ -1,0 +1,51 @@
+# cargo-deny configuration for license enforcement.
+# Run locally: cargo install --locked cargo-deny && cargo deny check licenses
+#
+# We only enforce licenses here; CVE scanning lives in cargo-audit (see
+# .github/workflows/security.yml).
+
+[graph]
+# Path-referenced OZ deps (stellar-*) are workspace-local; cargo-deny still
+# walks them, so allow what they use.
+all-features = false
+
+[licenses]
+# Fail on copyleft/non-permissive licenses. Add to this list only after
+# reviewing the dep — never add GPL/AGPL/SSPL.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "MPL-2.0",
+  "Zlib",
+  "CC0-1.0",
+  "BSL-1.0",
+  "OpenSSL",
+]
+confidence-threshold = 0.93
+
+[[licenses.exceptions]]
+# `ring` ships with a custom license that bundles several permissive ones.
+name = "ring"
+allow = ["OpenSSL", "ISC", "MIT"]
+
+[bans]
+# Not enforced here — placeholder so cargo-deny doesn't complain about missing
+# section. Use cargo-audit for advisory/CVE scanning.
+multiple-versions = "allow"
+wildcards = "allow"
+
+[advisories]
+# CVE scanning is delegated to cargo-audit. We keep this section minimal so
+# cargo-deny doesn't double-fail on the same issue.
+version = 2
+yanked = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "allow"  # We use git/path deps for OZ stellar-* (oz-reference).
