@@ -12,11 +12,7 @@
 //! regression lock at the same time.
 
 use accesly_zk_email_verifier::{ZkEmailProof, ZkEmailVerifier, ZkEmailVerifierClient};
-use soroban_sdk::{
-    testutils::Address as _,
-    xdr::ToXdr,
-    Address, Bytes, BytesN, Env,
-};
+use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Address, Bytes, BytesN, Env};
 
 fn make_proof_xdr(e: &Env, domain_hash: [u8; 32], pk_hash: [u8; 32]) -> Bytes {
     let proof = ZkEmailProof {

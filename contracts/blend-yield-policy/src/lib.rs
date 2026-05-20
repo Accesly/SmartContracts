@@ -1,4 +1,4 @@
 #![no_std]
 
 mod contract;
-pub use contract::{BlendYieldPolicy, BlendYieldInstallParams, BlendYieldConfig};
+pub use contract::{BlendYieldConfig, BlendYieldInstallParams, BlendYieldPolicy};

@@ -22,11 +22,11 @@
 //!   clave DKIM en el registry. La integración del verificador ZK se agrega
 //!   en Fase 2 cuando el circuito esté finalizado.
 use soroban_sdk::{
-    contract, contractimpl, contracttype, contracterror, panic_with_error, xdr::FromXdr,
-    Address, Bytes, BytesN, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address,
+    Bytes, BytesN, Env, Symbol, Vec,
 };
-use stellar_accounts::verifiers::Verifier;
 use stellar_access::access_control::{get_admin, set_admin, AccessControl};
+use stellar_accounts::verifiers::Verifier;
 use stellar_zk_email::dkim_registry::{self, DKIMRegistry};
 
 #[contracterror]
@@ -104,11 +104,7 @@ impl DKIMRegistry for ZkEmailVerifier {
     }
 
     /// Revoca globalmente un public_key_hash. Solo admin.
-    fn revoke_dkim_public_key_hash(
-        e: &Env,
-        public_key_hash: BytesN<32>,
-        operator: Address,
-    ) {
+    fn revoke_dkim_public_key_hash(e: &Env, public_key_hash: BytesN<32>, operator: Address) {
         require_admin(e);
         dkim_registry::revoke_dkim_public_key_hash(e, &public_key_hash);
         let _ = operator;
@@ -135,12 +131,7 @@ impl Verifier for ZkEmailVerifier {
     /// requiere el verificador groth16/plonk generado por el circuito zkEmail
     /// de Accesly (back-end), que valide proof.proof contra key_data y
     /// signature_payload antes de delegar a este contrato.
-    fn verify(
-        e: &Env,
-        _signature_payload: Bytes,
-        _key_data: BytesN<32>,
-        sig_data: Bytes,
-    ) -> bool {
+    fn verify(e: &Env, _signature_payload: Bytes, _key_data: BytesN<32>, sig_data: Bytes) -> bool {
         // Hard-fail: sin verificación criptográfica del proof no hay seguridad real.
         // Fase 2 integra el verificador groth16/plonk via back-end Accesly.
         let _ = (e, sig_data);
@@ -154,7 +145,9 @@ impl Verifier for ZkEmailVerifier {
     fn batch_canonicalize_key(e: &Env, keys_data: Vec<BytesN<32>>) -> Vec<Bytes> {
         Vec::from_iter(
             e,
-            keys_data.iter().map(|k| Bytes::from_slice(e, &k.to_array())),
+            keys_data
+                .iter()
+                .map(|k| Bytes::from_slice(e, &k.to_array())),
         )
     }
 }
@@ -169,11 +162,7 @@ impl AccessControl for ZkEmailVerifier {}
 #[contractimpl]
 impl ZkEmailVerifier {
     /// Consulta si un par (domain_hash, pk_hash) es válido.
-    pub fn is_dkim_valid(
-        e: Env,
-        domain_hash: BytesN<32>,
-        public_key_hash: BytesN<32>,
-    ) -> bool {
+    pub fn is_dkim_valid(e: Env, domain_hash: BytesN<32>, public_key_hash: BytesN<32>) -> bool {
         dkim_registry::is_key_hash_valid(&e, &domain_hash, &public_key_hash)
     }
 
@@ -189,11 +178,7 @@ impl ZkEmailVerifier {
 mod tests {
     extern crate std;
 
-    use soroban_sdk::{
-        testutils::Address as _,
-        xdr::ToXdr,
-        Address, Bytes, BytesN, Env,
-    };
+    use soroban_sdk::{testutils::Address as _, xdr::ToXdr, Address, Bytes, BytesN, Env};
 
     use super::*;
 
@@ -203,9 +188,15 @@ mod tests {
         (addr, admin)
     }
 
-    fn domain() -> [u8; 32] { [1u8; 32] }
-    fn pk_hash() -> [u8; 32] { [2u8; 32] }
-    fn other_pk_hash() -> [u8; 32] { [3u8; 32] }
+    fn domain() -> [u8; 32] {
+        [1u8; 32]
+    }
+    fn pk_hash() -> [u8; 32] {
+        [2u8; 32]
+    }
+    fn other_pk_hash() -> [u8; 32] {
+        [3u8; 32]
+    }
 
     fn make_proof(e: &Env, dh: [u8; 32], pkh: [u8; 32]) -> Bytes {
         let proof = ZkEmailProof {

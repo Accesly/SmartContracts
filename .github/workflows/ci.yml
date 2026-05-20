@@ -13,10 +13,12 @@ env:
   # If you update Cargo.toml to a new OZ version, bump this too.
   OZ_REFERENCE_REPO: https://github.com/OpenZeppelin/stellar-contracts.git
   OZ_REFERENCE_TAG: v0.7.1
-  # Soroban contract WASM hard limit is 64 KiB compressed.
-  # We warn at 60 KiB and fail at 64 KiB.
-  WASM_WARN_BYTES: 61440
-  WASM_FAIL_BYTES: 65536
+  # Soroban contract WASM size budget. Current network limit is well above
+  # 100 KiB (the smart-account WASM is ~90 KiB and deployed successfully).
+  # We warn at 100 KiB to flag unexpected growth and fail at 128 KiB as a
+  # safety stop — adjust these if the contracts genuinely need more room.
+  WASM_WARN_BYTES: 102400
+  WASM_FAIL_BYTES: 131072
 
 jobs:
   fmt:

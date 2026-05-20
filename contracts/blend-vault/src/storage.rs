@@ -41,23 +41,36 @@ pub fn set_blend_pool(e: &Env, pool: &Address) {
 }
 
 pub fn get_blend_pool(e: &Env) -> Address {
-    e.storage().instance().get(&StorageKey::BlendPool).expect("blend pool not set")
+    e.storage()
+        .instance()
+        .get(&StorageKey::BlendPool)
+        .expect("blend pool not set")
 }
 
 pub fn set_usdc_reserve_index(e: &Env, index: u32) {
-    e.storage().instance().set(&StorageKey::UsdcReserveIndex, &index);
+    e.storage()
+        .instance()
+        .set(&StorageKey::UsdcReserveIndex, &index);
 }
 
 pub fn get_usdc_reserve_index(e: &Env) -> u32 {
-    e.storage().instance().get(&StorageKey::UsdcReserveIndex).expect("reserve index not set")
+    e.storage()
+        .instance()
+        .get(&StorageKey::UsdcReserveIndex)
+        .expect("reserve index not set")
 }
 
 pub fn set_accesly_wallet(e: &Env, wallet: &Address) {
-    e.storage().instance().set(&StorageKey::AcceslyWallet, wallet);
+    e.storage()
+        .instance()
+        .set(&StorageKey::AcceslyWallet, wallet);
 }
 
 pub fn get_accesly_wallet(e: &Env) -> Address {
-    e.storage().instance().get(&StorageKey::AcceslyWallet).expect("accesly wallet not set")
+    e.storage()
+        .instance()
+        .get(&StorageKey::AcceslyWallet)
+        .expect("accesly wallet not set")
 }
 
 // ── Principal por usuario ─────────────────────────────────────────────────────
@@ -67,13 +80,16 @@ pub fn get_accesly_wallet(e: &Env) -> Address {
 pub fn add_principal(e: &Env, user: &Address, amount: i128) {
     let key = StorageKey::UserPrincipal(user.clone());
     let current: i128 = e.storage().persistent().get(&key).unwrap_or(0);
-    let new_val = current.checked_add(amount)
+    let new_val = current
+        .checked_add(amount)
         .unwrap_or_else(|| panic_with_error!(e, StorageError::PrincipalOverflow));
     if new_val == 0 {
         e.storage().persistent().remove(&key);
     } else {
         e.storage().persistent().set(&key, &new_val);
-        e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
     }
 }
 
@@ -103,7 +119,9 @@ pub fn reduce_principal_proportional(
         e.storage().persistent().remove(&key);
     } else {
         e.storage().persistent().set(&key, &new_principal);
-        e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
     }
 }
 
@@ -111,7 +129,9 @@ pub fn reduce_principal_proportional(
 pub fn get_principal(e: &Env, user: &Address) -> i128 {
     let key = StorageKey::UserPrincipal(user.clone());
     if let Some(val) = e.storage().persistent().get(&key) {
-        e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+        e.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
         val
     } else {
         0

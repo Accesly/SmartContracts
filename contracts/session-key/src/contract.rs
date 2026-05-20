@@ -14,8 +14,8 @@
 //! Esta política solo impone las restricciones temporales y de monto.
 use soroban_sdk::{
     auth::{Context, ContractContext},
-    contract, contractimpl, contracttype, panic_with_error,
-    contracterror, Address, Env, Symbol, TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
+    TryFromVal, Vec,
 };
 use stellar_accounts::{
     policies::Policy,
@@ -95,7 +95,11 @@ fn storage_key(smart_account: &Address, context_rule_id: u32) -> StorageKey {
 
 fn load_session(e: &Env, smart_account: &Address, context_rule_id: u32) -> SessionData {
     let key = storage_key(smart_account, context_rule_id);
-    match e.storage().persistent().get::<StorageKey, SessionData>(&key) {
+    match e
+        .storage()
+        .persistent()
+        .get::<StorageKey, SessionData>(&key)
+    {
         Some(data) => data,
         None => panic_with_error!(e, SessionKeyError::NotInstalled),
     }
@@ -103,7 +107,11 @@ fn load_session(e: &Env, smart_account: &Address, context_rule_id: u32) -> Sessi
 
 fn load_session_no_extend(e: &Env, smart_account: &Address, context_rule_id: u32) -> SessionData {
     let key = storage_key(smart_account, context_rule_id);
-    match e.storage().persistent().get::<StorageKey, SessionData>(&key) {
+    match e
+        .storage()
+        .persistent()
+        .get::<StorageKey, SessionData>(&key)
+    {
         Some(data) => data,
         None => panic_with_error!(e, SessionKeyError::NotInstalled),
     }
@@ -112,7 +120,9 @@ fn load_session_no_extend(e: &Env, smart_account: &Address, context_rule_id: u32
 fn save_session(e: &Env, smart_account: &Address, context_rule_id: u32, data: &SessionData) {
     let key = storage_key(smart_account, context_rule_id);
     e.storage().persistent().set(&key, data);
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
 fn remove_session(e: &Env, smart_account: &Address, context_rule_id: u32) {
@@ -188,7 +198,9 @@ impl Policy for SessionKeyPolicy {
                     if amount <= 0 {
                         panic_with_error!(e, SessionKeyError::InvalidAmount);
                     }
-                    let new_spent = data.spent.checked_add(amount)
+                    let new_spent = data
+                        .spent
+                        .checked_add(amount)
                         .unwrap_or_else(|| panic_with_error!(e, SessionKeyError::AmountExceeded));
                     if new_spent > data.max_amount {
                         panic_with_error!(e, SessionKeyError::AmountExceeded);
@@ -259,11 +271,7 @@ impl SessionKeyPolicy {
 
     /// Consulta el estado de la sesión. Requiere auth del Smart Account.
     /// Para saber si una sesión está activa sin auth, usar `is_active()`.
-    pub fn get_session(
-        e: Env,
-        context_rule_id: u32,
-        smart_account: Address,
-    ) -> SessionData {
+    pub fn get_session(e: Env, context_rule_id: u32, smart_account: Address) -> SessionData {
         smart_account.require_auth();
         load_session_no_extend(&e, &smart_account, context_rule_id)
     }
@@ -271,7 +279,11 @@ impl SessionKeyPolicy {
     /// Comprueba si la sesión sigue activa.
     pub fn is_active(e: Env, context_rule_id: u32, smart_account: Address) -> bool {
         let key = storage_key(&smart_account, context_rule_id);
-        if let Some(data) = e.storage().persistent().get::<StorageKey, SessionData>(&key) {
+        if let Some(data) = e
+            .storage()
+            .persistent()
+            .get::<StorageKey, SessionData>(&key)
+        {
             e.ledger().sequence() < data.expires_at
         } else {
             false
@@ -291,7 +303,7 @@ mod tests {
         testutils::{Address as _, Ledger},
         Address, Env, IntoVal, String, Symbol, Vec,
     };
-    use stellar_accounts::smart_account::{ContextRule, ContextRuleType, Signer};
+    use stellar_accounts::smart_account::{ContextRule, ContextRuleType};
 
     use super::*;
 
@@ -358,7 +370,10 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: 500_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: 500_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
@@ -381,13 +396,19 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
     }
@@ -402,7 +423,10 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: -1 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: -1,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
     }
@@ -418,14 +442,21 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SessionKeyPolicy::uninstall(&e, rule.clone(), account.clone());
-            assert!(!SessionKeyPolicy::is_active(e.clone(), rule.id, account.clone()));
+            assert!(!SessionKeyPolicy::is_active(
+                e.clone(),
+                rule.id,
+                account.clone()
+            ));
         });
     }
 
@@ -455,9 +486,16 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 200, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 200,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
-            assert!(SessionKeyPolicy::is_active(e.clone(), rule.id, account.clone()));
+            assert!(SessionKeyPolicy::is_active(
+                e.clone(),
+                rule.id,
+                account.clone()
+            ));
         });
     }
 
@@ -470,13 +508,20 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 50, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 50,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.ledger().with_mut(|l| l.sequence_number = 50);
         e.as_contract(&addr, || {
-            assert!(!SessionKeyPolicy::is_active(e.clone(), rule.id, account.clone()));
+            assert!(!SessionKeyPolicy::is_active(
+                e.clone(),
+                rule.id,
+                account.clone()
+            ));
         });
     }
 
@@ -492,15 +537,26 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 1000, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 1000,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
-            assert!(SessionKeyPolicy::is_active(e.clone(), rule.id, account.clone()));
+            assert!(SessionKeyPolicy::is_active(
+                e.clone(),
+                rule.id,
+                account.clone()
+            ));
         });
 
         e.mock_all_auths();
         e.as_contract(&addr, || {
             SessionKeyPolicy::revoke(e.clone(), rule.id, account.clone());
-            assert!(!SessionKeyPolicy::is_active(e.clone(), rule.id, account.clone()));
+            assert!(!SessionKeyPolicy::is_active(
+                e.clone(),
+                rule.id,
+                account.clone()
+            ));
         });
     }
 
@@ -516,14 +572,21 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             // sin límite de monto, cualquier contexto pasa
             SessionKeyPolicy::enforce(
-                &e, transfer_ctx(&e, 1_000_000), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 1_000_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -538,19 +601,30 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 1_000_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 1_000_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             SessionKeyPolicy::enforce(
-                &e, transfer_ctx(&e, 400_000), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 400_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
         e.as_contract(&addr, || {
             SessionKeyPolicy::enforce(
-                &e, transfer_ctx(&e, 400_000), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 400_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
@@ -571,7 +645,10 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 50, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 50,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
@@ -579,7 +656,11 @@ mod tests {
 
         e.as_contract(&addr, || {
             SessionKeyPolicy::enforce(
-                &e, non_transfer_ctx(&e), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                non_transfer_ctx(&e),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -595,13 +676,20 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 100_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 100_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             SessionKeyPolicy::enforce(
-                &e, transfer_ctx(&e, 200_000), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_ctx(&e, 200_000),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -616,14 +704,21 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             // Without a spending cap, non-transfer calls are allowed.
             SessionKeyPolicy::enforce(
-                &e, non_transfer_ctx(&e), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                non_transfer_ctx(&e),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -639,14 +734,21 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 100_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 100_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             // approve() with a spending cap must be rejected to prevent allowance bypass.
             SessionKeyPolicy::enforce(
-                &e, non_transfer_ctx(&e), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                non_transfer_ctx(&e),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -665,7 +767,11 @@ mod tests {
 
         // Insert session data directly — bypasses install() which calls require_auth.
         e.as_contract(&addr, || {
-            let data = SessionData { expires_at: 500, max_amount: 100_000, spent: 0 };
+            let data = SessionData {
+                expires_at: 500,
+                max_amount: 100_000,
+                spent: 0,
+            };
             save_session(&e, &account, rule.id, &data);
         });
 
@@ -694,7 +800,10 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 1_000_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 1_000_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
@@ -725,19 +834,31 @@ mod tests {
         e.as_contract(&addr, || {
             SessionKeyPolicy::install(
                 &e,
-                SessionKeyInstallParams { expires_at: 200, max_amount: 500_000 },
-                rule.clone(), acct1.clone(),
+                SessionKeyInstallParams {
+                    expires_at: 200,
+                    max_amount: 500_000,
+                },
+                rule.clone(),
+                acct1.clone(),
             );
             SessionKeyPolicy::install(
                 &e,
-                SessionKeyInstallParams { expires_at: 300, max_amount: 1_000_000 },
-                rule.clone(), acct2.clone(),
+                SessionKeyInstallParams {
+                    expires_at: 300,
+                    max_amount: 1_000_000,
+                },
+                rule.clone(),
+                acct2.clone(),
             );
         });
 
         e.as_contract(&addr, || {
             SessionKeyPolicy::enforce(
-                &e, transfer_ctx(&e, 400_000), Vec::new(&e), rule.clone(), acct1.clone(),
+                &e,
+                transfer_ctx(&e, 400_000),
+                Vec::new(&e),
+                rule.clone(),
+                acct1.clone(),
             );
         });
 
@@ -763,14 +884,21 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 0 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 0,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             // approve() crea allowances persistentes — siempre prohibido.
             SessionKeyPolicy::enforce(
-                &e, approve_ctx(&e), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                approve_ctx(&e),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -786,14 +914,21 @@ mod tests {
         e.ledger().with_mut(|l| l.sequence_number = 100);
 
         e.as_contract(&addr, || {
-            let params = SessionKeyInstallParams { expires_at: 500, max_amount: 1_000_000 };
+            let params = SessionKeyInstallParams {
+                expires_at: 500,
+                max_amount: 1_000_000,
+            };
             SessionKeyPolicy::install(&e, params, rule.clone(), account.clone());
         });
 
         e.as_contract(&addr, || {
             // transfer_from() consume allowances preexistentes — siempre prohibido.
             SessionKeyPolicy::enforce(
-                &e, transfer_from_ctx(&e), Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                transfer_from_ctx(&e),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }

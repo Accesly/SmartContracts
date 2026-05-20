@@ -43,12 +43,12 @@ mod tests {
     use super::*;
 
     const SECRET: [u8; 32] = [
-        157, 97, 177, 157, 239, 253, 90, 96, 186, 132, 74, 244, 146, 236, 44, 196,
-        68, 73, 197, 105, 123, 50, 105, 25, 112, 59, 172, 3, 28, 174, 127, 96,
+        157, 97, 177, 157, 239, 253, 90, 96, 186, 132, 74, 244, 146, 236, 44, 196, 68, 73, 197,
+        105, 123, 50, 105, 25, 112, 59, 172, 3, 28, 174, 127, 96,
     ];
     const SECRET2: [u8; 32] = [
-        200, 100, 150, 200, 240, 250, 95, 100, 190, 140, 80, 250, 150, 240, 50, 200,
-        70, 80, 200, 110, 130, 55, 110, 30, 115, 65, 175, 10, 35, 180, 130, 100,
+        200, 100, 150, 200, 240, 250, 95, 100, 190, 140, 80, 250, 150, 240, 50, 200, 70, 80, 200,
+        110, 130, 55, 110, 30, 115, 65, 175, 10, 35, 180, 130, 100,
     ];
 
     fn setup(e: &Env) -> (Address, BytesN<32>, [u8; 32]) {
@@ -76,7 +76,11 @@ mod tests {
         let sig = sign(&e, &secret, &payload_hash.to_array());
 
         let client = Ed25519VerifierClient::new(&e, &addr);
-        assert!(client.verify(&Bytes::from_array(&e, &payload_hash.to_array()), &pubkey, &sig));
+        assert!(client.verify(
+            &Bytes::from_array(&e, &payload_hash.to_array()),
+            &pubkey,
+            &sig
+        ));
     }
 
     #[test]
@@ -88,12 +92,16 @@ mod tests {
         let data = Bytes::from_array(&e, &[1u8; 64]);
         let payload_hash = e.crypto().keccak256(&data);
         let mut sig_bytes = SigningKey::from_bytes(&secret)
-            .sign(&payload_hash.to_array()).to_bytes();
+            .sign(&payload_hash.to_array())
+            .to_bytes();
         sig_bytes[0] = sig_bytes[0].wrapping_add(1); // corrupt
         let sig = BytesN::from_array(&e, &sig_bytes);
 
-        Ed25519VerifierClient::new(&e, &addr)
-            .verify(&Bytes::from_array(&e, &payload_hash.to_array()), &pubkey, &sig);
+        Ed25519VerifierClient::new(&e, &addr).verify(
+            &Bytes::from_array(&e, &payload_hash.to_array()),
+            &pubkey,
+            &sig,
+        );
     }
 
     #[test]
@@ -102,16 +110,22 @@ mod tests {
         let e = Env::default();
         let (addr, _pubkey1, _) = setup(&e);
 
-        let signing_key2 = SigningKey::from_bytes(&SECRET2);
-        let pubkey1 = BytesN::from_array(&e, SigningKey::from_bytes(&SECRET).verifying_key().as_bytes());
+        let _signing_key2 = SigningKey::from_bytes(&SECRET2);
+        let pubkey1 = BytesN::from_array(
+            &e,
+            SigningKey::from_bytes(&SECRET).verifying_key().as_bytes(),
+        );
 
         let data = Bytes::from_array(&e, &[1u8; 64]);
         let payload_hash = e.crypto().keccak256(&data);
         // Firma con key2, verifica con pubkey1
         let sig = sign(&e, &SECRET2, &payload_hash.to_array());
 
-        Ed25519VerifierClient::new(&e, &addr)
-            .verify(&Bytes::from_array(&e, &payload_hash.to_array()), &pubkey1, &sig);
+        Ed25519VerifierClient::new(&e, &addr).verify(
+            &Bytes::from_array(&e, &payload_hash.to_array()),
+            &pubkey1,
+            &sig,
+        );
     }
 
     // ── canonicalize_key ──────────────────────────────────────────────────────

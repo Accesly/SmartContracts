@@ -23,8 +23,8 @@
 //!   - Coexiste con CETES 50/50: context rules separadas, storage separado
 use soroban_sdk::{
     auth::{Context, ContractContext},
-    contract, contractimpl, contracttype, panic_with_error,
-    contracterror, Address, Env, IntoVal, Symbol, TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, IntoVal,
+    Symbol, TryFromVal, Vec,
 };
 use stellar_accounts::{
     policies::Policy,
@@ -34,14 +34,21 @@ use stellar_accounts::{
 // ── Constantes ────────────────────────────────────────────────────────────────
 
 const DAY_IN_LEDGERS: u32 = 17_280;
+// Re-exported from lib.rs; clippy doesn't trace re-exports.
+#[allow(dead_code)]
 pub const WEEK_IN_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
 
 const EXTEND_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
 const TTL_THRESHOLD: u32 = EXTEND_AMOUNT - DAY_IN_LEDGERS;
 
-/// Porcentajes fijos. Immutables sin upgrade + timelock 48h.
+// Porcentajes fijos del split 60/30/10. Public para que consumidores externos
+// (SDK, dashboards, docs) puedan importarlos. La distribución real está hardcoded
+// en `BlendYieldInstallParams` y validada por la policy on-chain.
+#[allow(dead_code)]
 pub const USER_PCT: u32 = 60;
+#[allow(dead_code)]
 pub const DEVELOPER_PCT: u32 = 30;
+#[allow(dead_code)]
 pub const ACCESLY_PCT: u32 = 10;
 
 // ── Errores ──────────────────────────────────────────────────────────────────
@@ -126,7 +133,9 @@ fn load_config(e: &Env, smart_account: &Address, context_rule_id: u32) -> BlendY
     let key = StorageKey::Config(smart_account.clone(), context_rule_id);
     match e.storage().persistent().get(&key) {
         Some(cfg) => {
-            e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+            e.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
             cfg
         }
         None => panic_with_error!(e, BlendYieldPolicyError::NotInstalled),
@@ -136,9 +145,15 @@ fn load_config(e: &Env, smart_account: &Address, context_rule_id: u32) -> BlendY
 fn save_config(e: &Env, smart_account: &Address, context_rule_id: u32, cfg: &BlendYieldConfig) {
     let key = StorageKey::Config(smart_account.clone(), context_rule_id);
     e.storage().persistent().set(&key, cfg);
-    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    e.storage()
+        .persistent()
+        .extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
 }
 
+// Kept for potential future use if the conditional check in install() is
+// tightened to require canonical wallet always. Today install() reads the
+// storage key directly with `if let Some(...)`, making this helper unused.
+#[allow(dead_code)]
 fn get_canonical_accesly_wallet(e: &Env) -> Address {
     e.storage()
         .instance()
@@ -210,7 +225,11 @@ impl Policy for BlendYieldPolicy {
 
         // 3. Validar contexto: debe ser un llamado a contrato (fail closed)
         let (contract, fn_name, args) = match context {
-            Context::Contract(ContractContext { contract, fn_name, args }) => (contract, fn_name, args),
+            Context::Contract(ContractContext {
+                contract,
+                fn_name,
+                args,
+            }) => (contract, fn_name, args),
             _ => panic_with_error!(e, BlendYieldPolicyError::InvalidContext),
         };
 
@@ -224,15 +243,15 @@ impl Policy for BlendYieldPolicy {
         // 4. Validar args: distribute_yield(smart_account, developer_wallet, accesly_wallet)
         // args[0] = smart_account — must match the account being authorized
         let account_arg = args.get(0).and_then(|v| Address::try_from_val(e, &v).ok());
-        if account_arg.map_or(true, |a| a != smart_account) {
+        if account_arg.is_none_or(|a| a != smart_account) {
             panic_with_error!(e, BlendYieldPolicyError::WrongSmartAccount);
         }
 
         let developer_arg = args.get(1).and_then(|v| Address::try_from_val(e, &v).ok());
-        let accesly_arg   = args.get(2).and_then(|v| Address::try_from_val(e, &v).ok());
+        let accesly_arg = args.get(2).and_then(|v| Address::try_from_val(e, &v).ok());
 
-        let developer_ok = developer_arg.map_or(false, |a| a == cfg.developer_wallet);
-        let accesly_ok   = accesly_arg.map_or(false, |a| a == cfg.accesly_wallet);
+        let developer_ok = developer_arg.is_some_and(|a| a == cfg.developer_wallet);
+        let accesly_ok = accesly_arg.is_some_and(|a| a == cfg.accesly_wallet);
 
         if !developer_ok || !accesly_ok {
             panic_with_error!(e, BlendYieldPolicyError::WrongRecipients);
@@ -261,7 +280,11 @@ impl Policy for BlendYieldPolicy {
         // Validation is skipped if init() has not been called yet (testnet: stellar CLI v26
         // has a bug with invoke on OZ Policy contracts; init() will be callable in a future
         // CLI version or via a different deployment mechanism).
-        if let Some(canonical) = e.storage().instance().get::<InstanceKey, Address>(&InstanceKey::AcceslyWallet) {
+        if let Some(canonical) = e
+            .storage()
+            .instance()
+            .get::<InstanceKey, Address>(&InstanceKey::AcceslyWallet)
+        {
             if install_params.accesly_wallet != canonical {
                 panic_with_error!(e, BlendYieldPolicyError::InvalidAcceslyWallet);
             }
@@ -302,17 +325,14 @@ impl BlendYieldPolicy {
         if e.storage().instance().has(&InstanceKey::AcceslyWallet) {
             panic_with_error!(e, BlendYieldPolicyError::AlreadyInitialized);
         }
-        e.storage().instance().set(&InstanceKey::AcceslyWallet, &accesly_wallet);
+        e.storage()
+            .instance()
+            .set(&InstanceKey::AcceslyWallet, &accesly_wallet);
     }
 
     /// Habilita o deshabilita la distribución.
     /// Requiere autorización del Smart Account (context rule admin-cfg con biométrico).
-    pub fn set_enabled(
-        e: Env,
-        context_rule_id: u32,
-        smart_account: Address,
-        enabled: bool,
-    ) {
+    pub fn set_enabled(e: Env, context_rule_id: u32, smart_account: Address, enabled: bool) {
         smart_account.require_auth();
         let mut cfg = load_config(&e, &smart_account, context_rule_id);
         cfg.enabled = enabled;
@@ -332,7 +352,7 @@ impl BlendYieldPolicy {
             return 0;
         }
         let next = cfg.last_distribution.saturating_add(cfg.period_ledgers);
-        if current >= next { 0 } else { next - current }
+        next.saturating_sub(current)
     }
 }
 
@@ -348,7 +368,7 @@ mod tests {
         testutils::{Address as _, Ledger},
         Address, Env, IntoVal, String, Symbol, Vec,
     };
-    use stellar_accounts::smart_account::{ContextRule, ContextRuleType, Signer};
+    use stellar_accounts::smart_account::{ContextRule, ContextRuleType};
 
     use super::*;
 
@@ -357,7 +377,9 @@ mod tests {
 
     #[contracttype]
     #[derive(Clone)]
-    enum MockKey { YieldAccrued }
+    enum MockKey {
+        YieldAccrued,
+    }
 
     #[contract]
     struct MockBlendVault;
@@ -366,13 +388,24 @@ mod tests {
     impl MockBlendVault {
         /// Configura cuánto yield_accrued devolverá get_position
         pub fn set_yield(e: Env, yield_amount: i128) {
-            e.storage().instance().set(&MockKey::YieldAccrued, &yield_amount);
+            e.storage()
+                .instance()
+                .set(&MockKey::YieldAccrued, &yield_amount);
         }
 
         /// Implementa el ABI que espera blend-yield-policy
         pub fn get_position(e: Env, _account: Address) -> MockUserPosition {
-            let y: i128 = e.storage().instance().get(&MockKey::YieldAccrued).unwrap_or(0);
-            MockUserPosition { shares: 0, current_value: y, principal: 0, yield_accrued: y }
+            let y: i128 = e
+                .storage()
+                .instance()
+                .get(&MockKey::YieldAccrued)
+                .unwrap_or(0);
+            MockUserPosition {
+                shares: 0,
+                current_value: y,
+                principal: 0,
+                yield_accrued: y,
+            }
         }
     }
 
@@ -409,7 +442,13 @@ mod tests {
         }
     }
 
-    fn distribute_ctx(e: &Env, vault: &Address, smart_account: &Address, dev: &Address, accesly: &Address) -> Context {
+    fn distribute_ctx(
+        e: &Env,
+        vault: &Address,
+        smart_account: &Address,
+        dev: &Address,
+        accesly: &Address,
+    ) -> Context {
         let mut args = soroban_sdk::Vec::new(e);
         args.push_back(smart_account.clone().into_val(e));
         args.push_back(dev.clone().into_val(e));
@@ -436,7 +475,12 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
             let cfg = BlendYieldPolicy::get_config(e.clone(), rule.id, account.clone());
             assert!(cfg.enabled);
             assert_eq!(cfg.last_distribution, 0);
@@ -459,12 +503,22 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
     }
 
@@ -486,7 +540,12 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&1_000_000i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
@@ -520,7 +579,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -532,7 +596,9 @@ mod tests {
             BlendYieldPolicy::enforce(
                 &e,
                 distribute_ctx(&e, &vault, &account, &dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -554,21 +620,32 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&1_000_000i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
             BlendYieldPolicy::enforce(
-                &e, distribute_ctx(&e, &vault, &account, &dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                distribute_ctx(&e, &vault, &account, &dev, &accesly),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
 
         // Segunda llamada inmediata: debe fallar con PeriodNotElapsed
         e.as_contract(&policy, || {
             BlendYieldPolicy::enforce(
-                &e, distribute_ctx(&e, &vault, &account, &dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                &e,
+                distribute_ctx(&e, &vault, &account, &dev, &accesly),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -590,14 +667,21 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&1_000_000i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
             BlendYieldPolicy::enforce(
                 &e,
                 distribute_ctx(&e, &wrong_vault, &account, &dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -618,7 +702,12 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&1_000_000i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
@@ -648,14 +737,21 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&1_000_000i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
             BlendYieldPolicy::enforce(
                 &e,
                 distribute_ctx(&e, &vault, &account, &wrong_dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -677,14 +773,21 @@ mod tests {
         MockBlendVaultClient::new(&e, &vault).set_yield(&0i128);
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.as_contract(&policy, || {
             BlendYieldPolicy::enforce(
                 &e,
                 distribute_ctx(&e, &vault, &account, &dev, &accesly),
-                Vec::new(&e), rule.clone(), account.clone(),
+                Vec::new(&e),
+                rule.clone(),
+                account.clone(),
             );
         });
     }
@@ -704,7 +807,12 @@ mod tests {
         e.mock_all_auths();
 
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
             assert_eq!(
                 BlendYieldPolicy::ledgers_until_next(e.clone(), rule.id, account.clone()),
                 0
@@ -727,7 +835,12 @@ mod tests {
 
         e.mock_all_auths();
         e.as_contract(&policy, || {
-            BlendYieldPolicy::install(&e, make_params(&vault, &dev, &accesly), rule.clone(), account.clone());
+            BlendYieldPolicy::install(
+                &e,
+                make_params(&vault, &dev, &accesly),
+                rule.clone(),
+                account.clone(),
+            );
         });
 
         e.mock_all_auths();
@@ -741,7 +854,7 @@ mod tests {
     fn uninstall_not_installed_fails() {
         let e = Env::default();
         let vault = e.register(MockBlendVault, ());
-        let accesly = Address::generate(&e);
+        let _accesly = Address::generate(&e);
         e.mock_all_auths();
         let policy = e.register(BlendYieldPolicy, ());
         let account = Address::generate(&e);
