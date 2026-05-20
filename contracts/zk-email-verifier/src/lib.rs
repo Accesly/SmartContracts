@@ -1,4 +1,4 @@
 #![no_std]
 
-mod contract;
-pub use contract::{ZkEmailVerifier, ZkEmailProof};
+pub mod contract;
+pub use contract::{ZkEmailProof, ZkEmailVerifier, ZkEmailVerifierClient};

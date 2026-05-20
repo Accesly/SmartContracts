@@ -1,5 +1,8 @@
 #![no_std]
 
-mod contract;
-mod context_rules;
-mod trustlines;
+pub mod contract;
+pub mod context_rules;
+pub mod trustlines;
+
+pub use contract::{AcceslySmartAccount, AcceslySmartAccountClient};
+pub use trustlines::StellarAsset;

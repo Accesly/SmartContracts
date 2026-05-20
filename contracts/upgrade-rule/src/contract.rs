@@ -21,6 +21,21 @@ const DAY_IN_LEDGERS: u32 = 17280;
 const EXTEND_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
 const TTL_THRESHOLD: u32 = EXTEND_AMOUNT - DAY_IN_LEDGERS;
 
+// ── Rate limiting (RA-02 Opción B) ────────────────────────────────────────────
+//
+// Mitigación contra state bloat: un atacante con muchas addresses podría llamar
+// install() repetidamente para inflar el storage del contrato. Limitamos cuántas
+// configs activas puede tener cada smart_account. Sin esto, el atacante puede
+// mantener entradas vivas indefinidamente pagando fees. Con cap, el daño por
+// smart_account está acotado.
+//
+// Fix definitivo (cuando soroban-sdk lo permita): validar `e.invoker()` igual al
+// smart_account. Hasta entonces, este cap es la defensa práctica.
+
+/// Máximo de configuraciones activas por (smart_account). Cubre múltiples
+/// upgrade flows simultáneos pero acota el state bloat.
+pub const MAX_RULES_PER_ACCOUNT: u32 = 5;
+
 // ── Errores ───────────────────────────────────────────────────────────────────
 
 #[contracterror]
@@ -33,6 +48,8 @@ pub enum UpgradeRuleError {
     UnauthorizedTarget = 6102,
     /// La función no es `upgrade`.
     InvalidFunction = 6103,
+    /// El smart_account ya tiene MAX_RULES_PER_ACCOUNT configuraciones activas.
+    TooManyRules = 6104,
 }
 
 // ── Tipos de storage ──────────────────────────────────────────────────────────
@@ -52,6 +69,8 @@ pub struct UpgradeRuleInstallParams {
 #[contracttype]
 enum StorageKey {
     Config(Address, u32),
+    /// Contador de configs activas por smart_account. Usado para rate limiting (RA-02).
+    AccountRuleCount(Address),
 }
 
 // ── Helpers de storage ────────────────────────────────────────────────────────
@@ -72,6 +91,30 @@ fn save_config(e: &Env, smart_account: &Address, rule_id: u32, cfg: &UpgradeRule
 
 fn remove_config(e: &Env, smart_account: &Address, rule_id: u32) {
     e.storage().persistent().remove(&StorageKey::Config(smart_account.clone(), rule_id));
+}
+
+/// Lee el contador de reglas activas para un smart_account. 0 si nunca ha instalado.
+fn get_rule_count(e: &Env, smart_account: &Address) -> u32 {
+    let key = StorageKey::AccountRuleCount(smart_account.clone());
+    e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0)
+}
+
+/// Incrementa el contador. Llamado al final de install() — el caller ya validó el cap.
+fn inc_rule_count(e: &Env, smart_account: &Address) {
+    let key = StorageKey::AccountRuleCount(smart_account.clone());
+    let current = e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0);
+    e.storage().persistent().set(&key, &(current + 1));
+    e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+}
+
+/// Decrementa el contador. Llamado en uninstall() para liberar slot.
+fn dec_rule_count(e: &Env, smart_account: &Address) {
+    let key = StorageKey::AccountRuleCount(smart_account.clone());
+    let current = e.storage().persistent().get::<StorageKey, u32>(&key).unwrap_or(0);
+    if current > 0 {
+        e.storage().persistent().set(&key, &(current - 1));
+        e.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, EXTEND_AMOUNT);
+    }
 }
 
 // ── Contrato ──────────────────────────────────────────────────────────────────
@@ -118,9 +161,14 @@ impl Policy for UpgradeRulePolicy {
         if e.storage().persistent().has(&key) {
             panic_with_error!(e, UpgradeRuleError::AlreadyInstalled);
         }
+        // Rate limit RA-02: rechazar si el smart_account ya tiene MAX activas.
+        if get_rule_count(e, &smart_account) >= MAX_RULES_PER_ACCOUNT {
+            panic_with_error!(e, UpgradeRuleError::TooManyRules);
+        }
         save_config(e, &smart_account, context_rule.id, &UpgradeRuleConfig {
             target_contract: install_params.target_contract,
         });
+        inc_rule_count(e, &smart_account);
     }
 
     fn uninstall(e: &Env, context_rule: ContextRule, smart_account: Address) {
@@ -130,6 +178,7 @@ impl Policy for UpgradeRulePolicy {
             panic_with_error!(e, UpgradeRuleError::NotInstalled);
         }
         remove_config(e, &smart_account, context_rule.id);
+        dec_rule_count(e, &smart_account);
     }
 }
 
@@ -372,6 +421,155 @@ mod tests {
                 rule.clone(),
                 account.clone(),
             );
+        });
+    }
+
+    // ── Rate limiting (RA-02) ─────────────────────────────────────────────────
+
+    fn make_rule_with_id(e: &Env, id: u32) -> ContextRule {
+        ContextRule {
+            id,
+            context_type: ContextRuleType::Default,
+            name: String::from_str(e, "upgrade"),
+            signers: Vec::new(e),
+            signer_ids: Vec::new(e),
+            policies: Vec::new(e),
+            policy_ids: Vec::new(e),
+            valid_until: None,
+        }
+    }
+
+    #[test]
+    fn install_up_to_max_succeeds() {
+        let e = Env::default();
+        let addr = e.register(MockContract, ());
+        let account = Address::generate(&e);
+        let target = Address::generate(&e);
+        e.mock_all_auths();
+
+        // Instala exactamente MAX_RULES_PER_ACCOUNT — todas deben pasar.
+        for i in 0..MAX_RULES_PER_ACCOUNT {
+            e.as_contract(&addr, || {
+                UpgradeRulePolicy::install(
+                    &e,
+                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    make_rule_with_id(&e, i),
+                    account.clone(),
+                );
+            });
+        }
+
+        e.as_contract(&addr, || {
+            assert_eq!(get_rule_count(&e, &account), MAX_RULES_PER_ACCOUNT);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6104)")]
+    fn install_beyond_max_fails() {
+        let e = Env::default();
+        let addr = e.register(MockContract, ());
+        let account = Address::generate(&e);
+        let target = Address::generate(&e);
+        e.mock_all_auths();
+
+        // Llenar hasta el cap.
+        for i in 0..MAX_RULES_PER_ACCOUNT {
+            e.as_contract(&addr, || {
+                UpgradeRulePolicy::install(
+                    &e,
+                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    make_rule_with_id(&e, i),
+                    account.clone(),
+                );
+            });
+        }
+
+        // La N+1 debe fallar con TooManyRules (#6104).
+        e.as_contract(&addr, || {
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams { target_contract: target.clone() },
+                make_rule_with_id(&e, MAX_RULES_PER_ACCOUNT),
+                account.clone(),
+            );
+        });
+    }
+
+    #[test]
+    fn uninstall_frees_slot_for_new_install() {
+        let e = Env::default();
+        let addr = e.register(MockContract, ());
+        let account = Address::generate(&e);
+        let target = Address::generate(&e);
+        e.mock_all_auths();
+
+        // Llenar hasta el cap.
+        for i in 0..MAX_RULES_PER_ACCOUNT {
+            e.as_contract(&addr, || {
+                UpgradeRulePolicy::install(
+                    &e,
+                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    make_rule_with_id(&e, i),
+                    account.clone(),
+                );
+            });
+        }
+
+        // Desinstalar uno — libera slot.
+        e.as_contract(&addr, || {
+            UpgradeRulePolicy::uninstall(&e, make_rule_with_id(&e, 0), account.clone());
+            assert_eq!(get_rule_count(&e, &account), MAX_RULES_PER_ACCOUNT - 1);
+        });
+
+        // Ahora una nueva install (con rule_id distinto) debe pasar.
+        e.as_contract(&addr, || {
+            UpgradeRulePolicy::install(
+                &e,
+                UpgradeRuleInstallParams { target_contract: target.clone() },
+                make_rule_with_id(&e, MAX_RULES_PER_ACCOUNT),
+                account.clone(),
+            );
+            assert_eq!(get_rule_count(&e, &account), MAX_RULES_PER_ACCOUNT);
+        });
+    }
+
+    #[test]
+    fn two_accounts_independent_counters() {
+        let e = Env::default();
+        let addr = e.register(MockContract, ());
+        let account_a = Address::generate(&e);
+        let account_b = Address::generate(&e);
+        let target = Address::generate(&e);
+        e.mock_all_auths();
+
+        // Account A llena su cuota.
+        for i in 0..MAX_RULES_PER_ACCOUNT {
+            e.as_contract(&addr, || {
+                UpgradeRulePolicy::install(
+                    &e,
+                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    make_rule_with_id(&e, i),
+                    account_a.clone(),
+                );
+            });
+        }
+
+        // Account B debe poder instalar igual — contadores son por-account.
+        for i in 0..MAX_RULES_PER_ACCOUNT {
+            e.as_contract(&addr, || {
+                UpgradeRulePolicy::install(
+                    &e,
+                    UpgradeRuleInstallParams { target_contract: target.clone() },
+                    make_rule_with_id(&e, i),
+                    account_b.clone(),
+                );
+            });
+        }
+
+        e.as_contract(&addr, || {
+            assert_eq!(get_rule_count(&e, &account_a), MAX_RULES_PER_ACCOUNT);
+            assert_eq!(get_rule_count(&e, &account_b), MAX_RULES_PER_ACCOUNT);
         });
     }
 

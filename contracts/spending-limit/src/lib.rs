@@ -1,3 +1,5 @@
 #![no_std]
 
-mod contract;
+pub mod contract;
+
+pub use contract::{SpendingLimitPolicy, SpendingLimitPolicyClient};

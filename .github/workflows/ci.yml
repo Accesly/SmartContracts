@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Pin OZ Stellar reference repo to the same tag we use locally (=0.7.1).
+  # If you update Cargo.toml to a new OZ version, bump this too.
+  OZ_REFERENCE_REPO: https://github.com/OpenZeppelin/stellar-contracts.git
+  OZ_REFERENCE_TAG: v0.7.1
+  # Soroban contract WASM hard limit is 64 KiB compressed.
+  # We warn at 60 KiB and fail at 64 KiB.
+  WASM_WARN_BYTES: 61440
+  WASM_FAIL_BYTES: 65536
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        working-directory: accesly-contracts
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - name: Clone oz-reference (${{ env.OZ_REFERENCE_TAG }})
+        run: git clone --depth 1 --branch ${{ env.OZ_REFERENCE_TAG }} ${{ env.OZ_REFERENCE_REPO }} oz-reference
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: accesly-contracts
+      - name: cargo clippy
+        working-directory: accesly-contracts
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  build:
+    name: build (wasm32v1-none)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - name: Clone oz-reference (${{ env.OZ_REFERENCE_TAG }})
+        run: git clone --depth 1 --branch ${{ env.OZ_REFERENCE_TAG }} ${{ env.OZ_REFERENCE_REPO }} oz-reference
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: accesly-contracts
+          key: wasm
+      - name: cargo build (release, wasm32v1-none)
+        working-directory: accesly-contracts
+        run: cargo build --target wasm32v1-none --release
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: accesly-wasm
+          path: accesly-contracts/target/wasm32v1-none/release/accesly_*.wasm
+          retention-days: 7
+
+  test:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: accesly-contracts
+      - name: Clone oz-reference (${{ env.OZ_REFERENCE_TAG }})
+        run: git clone --depth 1 --branch ${{ env.OZ_REFERENCE_TAG }} ${{ env.OZ_REFERENCE_REPO }} oz-reference
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: accesly-contracts
+          key: tests
+      - name: cargo test --workspace
+        working-directory: accesly-contracts
+        run: cargo test --workspace --locked
+
+  wasm-size:
+    name: wasm size check
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: accesly-wasm
+          path: wasm
+      - name: Report and check WASM sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          printf '%-40s %10s\n' "contract" "bytes"
+          printf '%-40s %10s\n' "----------------------------------------" "----------"
+          for f in wasm/*.wasm; do
+            size=$(stat -c%s "$f")
+            name=$(basename "$f")
+            printf '%-40s %10d\n' "$name" "$size"
+            if [ "$size" -ge "${WASM_FAIL_BYTES}" ]; then
+              echo "::error file=$name::$name is $size bytes (>= $WASM_FAIL_BYTES = Soroban hard limit)"
+              fail=1
+            elif [ "$size" -ge "${WASM_WARN_BYTES}" ]; then
+              echo "::warning file=$name::$name is $size bytes (>= $WASM_WARN_BYTES = soft warning)"
+            fi
+          done
+          exit $fail
+
+  deps-pinned:
+    name: OZ deps pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify all stellar-* deps are pinned to ${{ env.OZ_REFERENCE_TAG }} stripped
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Strip leading "v" from tag for cargo version compare.
+          want="${OZ_REFERENCE_TAG#v}"
+          # Find every stellar-* line in workspace Cargo.toml and verify version=want.
+          bad=0
+          while IFS= read -r line; do
+            # Extract the version="X.Y.Z" or version="=X.Y.Z" portion.
+            ver=$(echo "$line" | grep -oE 'version *= *"=?[^"]+"' | sed -E 's/.*"=?([^"]+)"/\1/')
+            if [ -z "$ver" ]; then
+              continue
+            fi
+            if [ "$ver" != "$want" ]; then
+              echo "::error::Cargo.toml has stellar-* dep at version $ver, expected $want: $line"
+              bad=1
+            fi
+          done < <(grep -E '^stellar-' Cargo.toml)
+          exit $bad
