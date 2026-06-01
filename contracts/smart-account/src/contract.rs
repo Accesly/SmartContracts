@@ -58,11 +58,15 @@ use crate::trustlines::{emit_trustlines_required, StellarAsset};
 #[repr(u32)]
 enum SmartAccountContractError {
     AlreadyInitialized = 9001,
+    /// `setup_yield` ya fue llamado para esta cuenta.
+    YieldAlreadyInstalled = 9002,
 }
 
 #[contracttype]
 enum SmartAccountStorageKey {
     Initialized,
+    /// Marker de idempotencia para `setup_yield`.
+    YieldInstalled,
 }
 
 // ── Contrato ──────────────────────────────────────────────────────────────────
@@ -98,13 +102,15 @@ impl AcceslySmartAccount {
     ///   vía `admin-cfg` (requerido por OZ v0.7.x, que rechaza spending-limit sobre reglas
     ///   `Default`).
     /// * `zk_email_verifier`      — Dirección del ZkEmailVerifier compartido.
-    /// * `yield_policy`           — Dirección del YieldDistributionPolicy compartido.
-    /// * `yield_params`           — Parámetros de instalación del yield policy
-    ///   (XDR-encoded YieldInstallParams).
-    /// * `cetes_contract`         — Dirección del contrato CETES/Etherfuse.
     /// * `trusted_assets`          — Lista de assets para los que se crearán trustlines.
     ///   El SDK construye esta lista según la configuración del developer (puede ser vacía).
     ///   Los issuers reales (testnet/mainnet) los conoce el SDK, no el contrato.
+    ///
+    /// **Yield**: la configuración de `yield_policy` se difiere a `setup_yield()`
+    /// post-deploy. Esto baja el footprint del constructor para caber dentro
+    /// de los límites de Soroban protocol 26 (~25 write entries, ~130KB write
+    /// bytes). El install del yield (con sus 7 config keys) ocurre en una
+    /// segunda tx después del deploy.
     #[allow(clippy::too_many_arguments)]
     pub fn __constructor(
         e: &Env,
@@ -117,9 +123,6 @@ impl AcceslySmartAccount {
         spending_limit_params: Val,
         tx_targets: Vec<Address>,
         zk_email_verifier: Address,
-        yield_policy: Address,
-        yield_params: Val,
-        cetes_contract: Address,
         trusted_assets: Vec<StellarAsset>,
     ) {
         if e.storage()
@@ -145,9 +148,6 @@ impl AcceslySmartAccount {
             spending_limit_params,
             &tx_targets,
             &zk_email_verifier,
-            &yield_policy,
-            yield_params,
-            &cetes_contract,
         );
 
         // Emitir trustlines requeridas para que el relayer las incluya en la tx.
@@ -155,6 +155,57 @@ impl AcceslySmartAccount {
         if !trusted_assets.is_empty() {
             emit_trustlines_required(e, trusted_assets);
         }
+    }
+
+    /// Instala la regla `yield-auto` + el `YieldDistributionPolicy` post-deploy.
+    ///
+    /// Esta función se difiere del constructor para que el deploy inicial
+    /// caiga dentro de los límites de footprint de Soroban protocol 26. Una
+    /// vez que el Smart Account está desplegado, el dueño (a través de la
+    /// regla `admin-cfg`) llama esta función en una segunda transacción
+    /// para activar la distribución automática de yield CETES.
+    ///
+    /// # Auth
+    /// Requiere que el Smart Account autorice (via context rule `admin-cfg`
+    /// con firma biométrica ed25519 del propietario).
+    ///
+    /// # Idempotencia
+    /// Solo se puede llamar una vez. Reintentos panic con `YieldAlreadyInstalled`.
+    /// Para desinstalar + reinstalar, usar `uninstall` del propio yield policy
+    /// vía rule `admin-cfg` y luego volver a llamar `setup_yield`.
+    pub fn setup_yield(
+        e: &Env,
+        yield_policy: Address,
+        yield_params: Val,
+        cetes_contract: Address,
+    ) {
+        // Auth del Smart Account (admin-cfg cubre con biométrico ed25519)
+        e.current_contract_address().require_auth();
+
+        if e.storage()
+            .instance()
+            .has(&SmartAccountStorageKey::YieldInstalled)
+        {
+            panic_with_error!(e, SmartAccountContractError::YieldAlreadyInstalled);
+        }
+        e.storage()
+            .instance()
+            .set(&SmartAccountStorageKey::YieldInstalled, &true);
+
+        // Misma lógica que estaba antes en setup_context_rules para yield-auto:
+        // signer vacío (relayer es quien firma), policy = yield_policy.
+        let signers: soroban_sdk::Vec<Signer> = soroban_sdk::Vec::new(e);
+        let mut policies: soroban_sdk::Map<Address, Val> = soroban_sdk::Map::new(e);
+        policies.set(yield_policy, yield_params);
+
+        smart_account_lib::add_context_rule(
+            e,
+            &stellar_accounts::smart_account::ContextRuleType::CallContract(cetes_contract),
+            &soroban_sdk::String::from_str(e, "yield-auto"),
+            None,
+            &signers,
+            &policies,
+        );
     }
 }
 

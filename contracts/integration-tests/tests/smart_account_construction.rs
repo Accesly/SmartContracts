@@ -10,8 +10,9 @@
 //! 3. Cross-contract `PolicyClient::install()` calls succeed against the real
 //!    `SpendingLimitPolicy` and `YieldDistributionPolicy` contracts.
 //! 4. The right number of context rules is installed:
-//!    `tx_targets.len()` biometric-tx rules + 4 base rules (admin-cfg,
-//!    zk-recovery, sep10-auth, yield-auto).
+//!    `tx_targets.len()` biometric-tx rules + 3 base rules (admin-cfg,
+//!    zk-recovery, sep10-auth). La regla `yield-auto` se difiere a
+//!    `setup_yield()` post-deploy (protocol 26 footprint).
 //!
 //! If this test passes, `scripts/deploy_testnet.sh` + the Lambda `createWallet`
 //! flow will succeed in deploying a per-user Smart Account.
@@ -89,7 +90,6 @@ fn deploy_smart_account(e: &Env, d: &Dependencies, tx_targets: Vec<Address>) -> 
     let trusted_assets: Vec<StellarAsset> = Vec::new(e);
 
     let spending_val: Val = build_spending_params().into_val(e);
-    let yield_val: Val = build_yield_params(d).into_val(e);
 
     e.register(
         AcceslySmartAccount,
@@ -103,9 +103,6 @@ fn deploy_smart_account(e: &Env, d: &Dependencies, tx_targets: Vec<Address>) -> 
             spending_val,
             tx_targets,
             d.zk_email_verifier.clone(),
-            d.yield_policy.clone(),
-            yield_val,
-            d.cetes_contract.clone(),
             trusted_assets,
         ),
     )
@@ -125,11 +122,12 @@ fn smart_account_constructor_wires_all_real_contracts_with_two_tokens() {
 
     let client = AcceslySmartAccountClient::new(&e, &sa);
 
-    // 2 biometric-tx (one per tx_target) + admin-cfg + zk-recovery + sep10-auth + yield-auto = 6.
+    // 2 biometric-tx (one per tx_target) + admin-cfg + zk-recovery + sep10-auth = 5.
+    // yield-auto se instala via setup_yield() post-deploy (no es parte del constructor).
     assert_eq!(
         client.get_context_rules_count(),
-        6,
-        "expected 2 biometric-tx + 4 base rules = 6 total"
+        5,
+        "expected 2 biometric-tx + 3 base rules = 5 total"
     );
 }
 
@@ -145,12 +143,13 @@ fn smart_account_constructor_with_empty_tx_targets_installs_only_base_rules() {
 
     let client = AcceslySmartAccountClient::new(&e, &sa);
 
-    // 0 biometric-tx + admin-cfg + zk-recovery + sep10-auth + yield-auto = 4.
-    // The SDK can install biometric-tx rules dynamically later via admin-cfg.
+    // 0 biometric-tx + admin-cfg + zk-recovery + sep10-auth = 3.
+    // yield-auto se difiere a setup_yield(). El SDK puede instalar biometric-tx
+    // rules dinámicamente vía admin-cfg.
     assert_eq!(
         client.get_context_rules_count(),
-        4,
-        "expected only the 4 base rules when tx_targets is empty"
+        3,
+        "expected only the 3 base rules when tx_targets is empty"
     );
 }
 
@@ -186,7 +185,7 @@ fn rule_zero_is_biometric_tx_scoped_to_first_tx_target() {
 }
 
 #[test]
-fn yield_auto_rule_has_no_signers() {
+fn setup_yield_installs_yield_auto_rule() {
     let e = Env::default();
     e.mock_all_auths();
 
@@ -195,28 +194,42 @@ fn yield_auto_rule_has_no_signers() {
     tx_targets.push_back(d.usdc_sac.clone());
 
     let sa = deploy_smart_account(&e, &d, tx_targets);
-
     let client = AcceslySmartAccountClient::new(&e, &sa);
 
-    // With 1 tx_target, yield-auto is at id 4 (after biometric-tx at 0, admin-cfg
-    // at 1, zk-recovery at 2, sep10-auth at 3).
-    let rule = client.get_context_rule(&4);
+    // Antes de setup_yield: 1 biometric-tx + 3 base = 4 rules.
+    assert_eq!(client.get_context_rules_count(), 4);
 
+    let yield_val: Val = build_yield_params(&d).into_val(&e);
+    client.setup_yield(&d.yield_policy, &yield_val, &d.cetes_contract);
+
+    // Después: yield-auto agregada como rule 4.
+    assert_eq!(client.get_context_rules_count(), 5);
+    let rule = client.get_context_rule(&4);
     assert_eq!(
         rule.name,
         soroban_sdk::String::from_str(&e, "yield-auto"),
         "rule 4 must be yield-auto"
     );
-    assert_eq!(
-        rule.signers.len(),
-        0,
-        "yield-auto runs without user signature (relayer triggers)"
-    );
-    assert_eq!(
-        rule.policies.len(),
-        1,
-        "yield-auto has exactly one policy (yield-distribution)"
-    );
+    assert_eq!(rule.signers.len(), 0, "yield-auto runs without user signature");
+    assert_eq!(rule.policies.len(), 1, "yield-auto has yield-distribution policy");
+}
+
+#[test]
+#[should_panic]
+fn setup_yield_cannot_be_called_twice() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let d = deploy_dependencies(&e);
+    let tx_targets: Vec<Address> = Vec::new(&e);
+    let sa = deploy_smart_account(&e, &d, tx_targets);
+    let client = AcceslySmartAccountClient::new(&e, &sa);
+
+    let yield_val: Val = build_yield_params(&d).into_val(&e);
+    client.setup_yield(&d.yield_policy, &yield_val, &d.cetes_contract);
+
+    // Segundo call panicea con YieldAlreadyInstalled (9002).
+    client.setup_yield(&d.yield_policy, &yield_val, &d.cetes_contract);
 }
 
 #[test]
@@ -237,7 +250,6 @@ fn smart_account_constructor_cannot_be_called_twice() {
     let secp256r1_pubkey = BytesN::from_array(&e, &[9u8; 65]);
 
     let spending_val: Val = build_spending_params().into_val(&e);
-    let yield_val: Val = build_yield_params(&d).into_val(&e);
 
     e.as_contract(&sa, || {
         AcceslySmartAccount::__constructor(
@@ -251,9 +263,6 @@ fn smart_account_constructor_cannot_be_called_twice() {
             spending_val,
             tx_targets,
             d.zk_email_verifier.clone(),
-            d.yield_policy.clone(),
-            yield_val,
-            d.cetes_contract.clone(),
             Vec::new(&e),
         );
     });
