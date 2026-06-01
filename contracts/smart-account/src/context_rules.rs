@@ -10,11 +10,16 @@
 //! | N                 | admin-cfg     | Default                      | ed25519 (External)   | —                |
 //! | N+1               | zk-recovery   | Default                      | zk_email (External)  | —                |
 //! | N+2               | sep10-auth    | Default                      | secp256r1 (External) | —                |
-//! | N+3               | yield-auto    | CallContract(cetes)          | —                    | yield_policy     |
 //!
 //! Donde `N = tx_targets.len()`. Si `tx_targets` está vacío, no se instala
 //! ninguna regla `biometric-tx` en el constructor — el SDK puede agregarlas
 //! después vía `admin-cfg`.
+//!
+//! **Yield**: la regla `yield-auto` (con su install de `YieldDistributionPolicy`)
+//! se difiere a una llamada post-deploy de `AcceslySmartAccount::setup_yield()`
+//! para que el footprint del constructor caiga dentro de los límites de
+//! Soroban protocol 26. Antes vivía aquí como `N+3`; el install de la policy
+//! escribe 7 config keys + TTL entries y empujaba el total fuera del cap.
 //!
 //! ## ¿Por qué una regla biometric-tx por token?
 //!
@@ -36,6 +41,9 @@ use soroban_sdk::{Address, Bytes, BytesN, Env, Map, String, Val, Vec};
 use stellar_accounts::smart_account::{self as smart_account_lib, ContextRuleType, Signer};
 
 /// Instala las context rules base del Smart Account.
+///
+/// La regla `yield-auto` se difiere a `AcceslySmartAccount::setup_yield()` —
+/// no se instala aquí. Ver `contract.rs` para el detalle.
 #[allow(clippy::too_many_arguments)]
 pub fn setup_context_rules(
     e: &Env,
@@ -48,9 +56,6 @@ pub fn setup_context_rules(
     spending_limit_params: Val,
     tx_targets: &Vec<Address>,
     zk_email_verifier: &Address,
-    yield_policy: &Address,
-    yield_params: Val,
-    cetes_contract: &Address,
 ) {
     // ── Signers ───────────────────────────────────────────────────────────────
 
@@ -144,21 +149,7 @@ pub fn setup_context_rules(
         );
     }
 
-    // ── Regla yield-auto ──────────────────────────────────────────────────────
-    // Distribución automática de yield CETES. Sin firma del usuario (relayer Lambda).
-    // Solo autoriza transfer() SEP-41 sobre el contrato CETES (yield-distribution policy).
-    {
-        let signers: Vec<Signer> = Vec::new(e);
-        let mut policies: Map<Address, Val> = Map::new(e);
-        policies.set(yield_policy.clone(), yield_params);
-
-        smart_account_lib::add_context_rule(
-            e,
-            &ContextRuleType::CallContract(cetes_contract.clone()),
-            &String::from_str(e, "yield-auto"),
-            None,
-            &signers,
-            &policies,
-        );
-    }
+    // NOTA: la regla `yield-auto` se difiere a AcceslySmartAccount::setup_yield()
+    // post-deploy para reducir el footprint del constructor y caer dentro de
+    // los límites de Soroban protocol 26.
 }
