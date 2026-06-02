@@ -7,6 +7,46 @@ Non-custodial authentication infrastructure for Stellar. This repository contain
 
 **Status:** Phase 1 complete · deployed on Stellar Testnet · 139 tests passing · 6 security audit rounds (Almanax) with zero critical/high findings open.
 
+**Latest WASM hash (testnet):** `e79d018e78ce1ae7d20dc5aecade04bb546e271dfc8a4246ac45dbfe97037a4b`
+
+---
+
+## Recent modifications (protocol 26 adaptation)
+
+The Stellar testnet upgrade to **protocol 26** tightened the per-transaction Soroban footprint limits (`writeBytes` and `write_entries`). The original `Smart Account` constructor — which installed every context rule in a single tx, including `yield-auto` plus its `YieldDistributionPolicy` with 7 config keys — exceeded the new caps and aborted with `sceStorage::scecExceededLimit` (≈29 entries / ≈295 KB).
+
+### What changed
+
+| Area | Before | After |
+|---|---|---|
+| `__constructor` arity | 13 args (included `yield_policy`, `yield_params`, `cetes_contract`) | **10 args** — yield bits removed |
+| `yield-auto` rule install | Happened inside `__constructor` | Deferred to a new `setup_yield(yield_policy, yield_params, cetes_contract)` public method, invoked post-deploy |
+| Rules installed by constructor | 5 base (`biometric-tx × N`, `admin-cfg`, `zk-recovery`, `sep10-auth`, `yield-auto`) | **4 base** (`yield-auto` deferred) |
+| Footprint of initial deploy | ~29 entries / ~295 KB → rejected | 16–22 entries depending on `tx_targets` → fits well within protocol 26 caps |
+| OZ Stellar deps in [Cargo.toml](Cargo.toml) | `path = "../oz-reference/..."` (required cloning the OZ repo as sibling) | `git = "https://github.com/OpenZeppelin/stellar-contracts", tag = "v0.7.1"` — reproducible builds without an extra clone |
+| New idempotency marker | — | `SmartAccountStorageKey::YieldInstalled` + error code `YieldAlreadyInstalled = 9002` |
+| Integration tests | Expected 6 / 4 rules with yield baked in | Expected **5 / 3 base rules**, plus two new tests: `setup_yield_installs_yield_auto_rule` and `setup_yield_cannot_be_called_twice` |
+
+### New API
+
+```rust
+// Called once, post-deploy, authorized by the Smart Account itself
+// (covered by the admin-cfg context rule + ed25519 biometric signature).
+pub fn setup_yield(
+    e: &Env,
+    yield_policy: Address,
+    yield_params: Val,
+    cetes_contract: Address,
+)
+```
+
+Idempotent: a second call panics with `YieldAlreadyInstalled`. To rotate the policy, `uninstall` it via `admin-cfg` first and then re-invoke `setup_yield`.
+
+### Operational impact
+
+- The backend (Lambda `createWallet`) now submits the deploy tx via Soroban RPC directly (KMS-signed), bypassing the OZ Relayer image, which still ships a pre-protocol-26 `stellar-rust-sdk` that rejects valid txs with `TxSorobanInvalid`.
+- A second tx (`setup_yield`) is fired only when an `appConfig` opts into CETES yield. Apps that don't use yield never pay that cost.
+
 ---
 
 ## What is Accesly?
@@ -93,9 +133,10 @@ Context rules are the permission table that `__check_auth` evaluates on every tr
 | N | `admin-cfg` | `Default` | ed25519 (External) | — |
 | N+1 | `zk-recovery` | `Default` | zk-email (External) | — |
 | N+2 | `sep10-auth` | `Default` | secp256r1 (External) | — |
-| N+3 | `yield-auto` | `CallContract(cetes)` | — (relayer-driven) | yield-distribution |
 
 Where `N = tx_targets.len()`. One `biometric-tx` rule per token in `tx_targets`. If `tx_targets` is empty, no biometric-tx rules are installed by the constructor (the SDK can add them dynamically via `admin-cfg`).
+
+> **Note (protocol 26):** the `yield-auto` rule was moved out of `__constructor` and is now installed by `setup_yield(...)` post-deploy. See [Recent modifications](#recent-modifications-protocol-26-adaptation) above.
 
 **Why one rule per token:** OZ `SpendingLimit::install()` rejects any rule whose `context_type` is not `CallContract(_)`. The SDK passes the SAC addresses (USDC, EURC, MXNe, etc.) the appId wants to bring under spending-limit enforcement.
 
@@ -127,14 +168,7 @@ Smart Account upgrades are protected by the TimelockController:
 
 - Rust stable with `wasm32v1-none` target (managed by [rust-toolchain.toml](rust-toolchain.toml))
 - [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup) v26.x
-- `oz-reference` cloned as a sibling of this repo:
-  ```
-  ../oz-reference/packages/{accounts,access,tokens,governance,zk-email,macros,contract-utils}
-  ```
-  OZ Stellar v0.7.1 is referenced by local path in [Cargo.toml](Cargo.toml). To clone:
-  ```bash
-  git clone --depth 1 --branch v0.7.1 https://github.com/OpenZeppelin/stellar-contracts.git ../oz-reference
-  ```
+- OZ Stellar `v0.7.1` is now consumed via git in [Cargo.toml](Cargo.toml) (`git = "https://github.com/OpenZeppelin/stellar-contracts", tag = "v0.7.1"`). No extra clone needed — `cargo build` fetches it automatically.
 
 **Verify setup:**
 
