@@ -22,7 +22,7 @@ use accesly_secp256r1_verifier::Secp256r1Verifier;
 use accesly_smart_account::{AcceslySmartAccount, AcceslySmartAccountClient, StellarAsset};
 use accesly_spending_limit::SpendingLimitPolicy;
 use accesly_yield_distribution::{YieldDistributionPolicy, YieldInstallParams, WEEK_IN_LEDGERS};
-use accesly_zk_email_verifier::ZkEmailVerifier;
+use accesly_zk_email_verifier::{VerifyingKey, ZkEmailVerifier, NUM_PUBLIC_SIGNALS};
 
 use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, IntoVal, Val, Vec};
 use stellar_accounts::policies::spending_limit::SpendingLimitAccountParams;
@@ -46,13 +46,28 @@ struct Dependencies {
     eurc_sac: Address,
 }
 
+fn dummy_vk(e: &Env) -> VerifyingKey {
+    let mut ic = soroban_sdk::Vec::new(e);
+    for _ in 0..(NUM_PUBLIC_SIGNALS + 1) {
+        ic.push_back(BytesN::from_array(e, &[0u8; 96]));
+    }
+    VerifyingKey {
+        alpha_neg: BytesN::from_array(e, &[0u8; 96]),
+        beta: BytesN::from_array(e, &[0u8; 192]),
+        gamma_neg: BytesN::from_array(e, &[0u8; 192]),
+        delta_neg: BytesN::from_array(e, &[0u8; 192]),
+        ic,
+    }
+}
+
 fn deploy_dependencies(e: &Env) -> Dependencies {
     let zk_admin = Address::generate(e);
+    let zk_vk = dummy_vk(e);
 
     Dependencies {
         ed25519_verifier: e.register(Ed25519Verifier, ()),
         secp256r1_verifier: e.register(Secp256r1Verifier, ()),
-        zk_email_verifier: e.register(ZkEmailVerifier, (&zk_admin,)),
+        zk_email_verifier: e.register(ZkEmailVerifier, (zk_admin.clone(), zk_vk)),
         spending_limit_policy: e.register(SpendingLimitPolicy, ()),
         yield_policy: e.register(YieldDistributionPolicy, ()),
         cetes_contract: Address::generate(e),
