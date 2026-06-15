@@ -22,6 +22,7 @@ members = [
     "contracts/governance",
     "contracts/upgrade-rule",
     "contracts/smart-account",
+    "contracts/smart-account-v3",
     "contracts/integration-tests",
 ]
 exclude = [

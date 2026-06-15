@@ -1,0 +1,30 @@
+[package]
+name = "accesly-smart-account-v3"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+# SmartAccount v3 — primer contrato del nuevo spec Accesly (2026-06-15).
+# - Constructor con 8 args (sin zk_email_verifier, sin trusted_assets).
+# - 3 context rules base (biometric-tx, admin-cfg, sep10-auth).
+#   Sin zk-recovery (reemplazado por recovery OTP backend).
+#   Sin yield-auto (yield interno fuera de scope).
+# - Función rotate_signer para Recovery v2: rota owner_ed25519, secp256r1
+#   pubkey y email_commitment en una sola tx admin-cfg.
+#
+# v2-legacy (`accesly-smart-account`) sigue compilando durante la transición
+# y queda zombie en testnet/mainnet. Las cuentas nuevas usan v3.
+#
+# Ver SDKAccesly/docs/Plan_Final_v1.md §11 (SmartAccount v3 spec).
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk            = { workspace = true }
+stellar-accounts       = { workspace = true }
+stellar-contract-utils = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

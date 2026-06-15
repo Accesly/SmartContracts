@@ -29,6 +29,7 @@ dependencies = [
  "accesly-governance",
  "accesly-secp256r1-verifier",
  "accesly-smart-account",
+ "accesly-smart-account-v3",
  "accesly-spending-limit",
  "accesly-zk-email-verifier",
  "ed25519-dalek",
@@ -56,6 +57,15 @@ dependencies = [
 
 [[package]]
 name = "accesly-smart-account"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-accounts",
+ "stellar-contract-utils",
+]
+
+[[package]]
+name = "accesly-smart-account-v3"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
