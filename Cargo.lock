@@ -3,31 +3,6 @@
 version = 4
 
 [[package]]
-name = "accesly-blend-rule"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
- "stellar-accounts",
-]
-
-[[package]]
-name = "accesly-blend-vault"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
- "stellar-contract-utils",
- "stellar-tokens",
-]
-
-[[package]]
-name = "accesly-blend-yield-policy"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
- "stellar-accounts",
-]
-
-[[package]]
 name = "accesly-ed25519-verifier"
 version = "0.1.0"
 dependencies = [
@@ -55,7 +30,6 @@ dependencies = [
  "accesly-secp256r1-verifier",
  "accesly-smart-account",
  "accesly-spending-limit",
- "accesly-yield-distribution",
  "accesly-zk-email-verifier",
  "ed25519-dalek",
  "soroban-sdk",
@@ -99,14 +73,6 @@ dependencies = [
 
 [[package]]
 name = "accesly-upgrade-rule"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
- "stellar-accounts",
-]
-
-[[package]]
-name = "accesly-yield-distribution"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
@@ -1731,16 +1697,6 @@ dependencies = [
  "crate-git-revision",
  "data-encoding",
  "heapless",
-]
-
-[[package]]
-name = "stellar-tokens"
-version = "0.7.1"
-source = "git+https://github.com/OpenZeppelin/stellar-contracts?tag=v0.7.1#3f81125bed3114cc93f5fca6d13240082050269a"
-dependencies = [
- "soroban-sdk",
- "stellar-contract-utils",
- "stellar-governance",
 ]
 
 [[package]]

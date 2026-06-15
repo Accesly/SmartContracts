@@ -143,10 +143,10 @@ deploy_no_ctor "accesly-session-key" "accesly_session_key.wasm"
 SESSION_KEY=$(addr_of "accesly-session-key")
 info "session-key → $SESSION_KEY"
 
-# ── 8. Yield Distribution Policy (sin constructor) ────────────────────────────
-deploy_no_ctor "accesly-yield-distribution" "accesly_yield_distribution.wasm"
-YIELD_DISTRIBUTION=$(addr_of "accesly-yield-distribution")
-info "yield-distribution → $YIELD_DISTRIBUTION"
+# ── 8. (deprecado 2026-06-15) Yield Distribution Policy ───────────────────────
+# Fuera de scope per Plan_Final_v1.md — Etherfuse cubre rendimiento.
+# SmartAccount v3 (Fase 1) elimina setup_yield(). Crate excluido del workspace.
+YIELD_DISTRIBUTION="DEPRECATED"
 
 # ── 9. Governance (proposers=[Accesly], executors=[Accesly], admin=Accesly) ───
 info "Desplegando accesly-governance..."
@@ -163,37 +163,11 @@ stellar contract deploy \
 GOVERNANCE=$(addr_of "accesly-governance")
 info "governance → $GOVERNANCE"
 
-# ── 10. Blend Vault ────────────────────────────────────────────────────────────
-info "Desplegando accesly-blend-vault..."
-stellar contract deploy \
-    --wasm "$WASM_DIR/accesly_blend_vault.wasm" \
-    --source-account "$ACCOUNT" \
-    --network "$NETWORK" \
-    --alias "accesly-blend-vault" \
-    --ignore-checks \
-    -- \
-    --usdc_address        "$USDC_SAC" \
-    --blend_pool          "$BLEND_POOL" \
-    --usdc_reserve_index  "$USDC_RESERVE_INDEX" \
-    --accesly_wallet      "$ACCESLY_ADDR" \
-    --name                "Accesly Blend USDC" \
-    --symbol              "abUSDC"
-BLEND_VAULT=$(addr_of "accesly-blend-vault")
-info "blend-vault → $BLEND_VAULT"
-
-# ── 11. Blend Yield Policy (deploy sin ctor, luego init vía invoke) ──────────
-# stellar contract deploy v26 tiene un bug con CreateContractV2 para este contrato.
-# Se despliega sin constructor y luego se llama init() separado.
-deploy_no_ctor "accesly-blend-yield-policy" "accesly_blend_yield_policy.wasm"
-BLEND_YIELD_POLICY=$(addr_of "accesly-blend-yield-policy")
-info "blend-yield-policy → $BLEND_YIELD_POLICY"
-# NOTE: init() cannot be called via stellar CLI v26 (bug with OZ Policy contracts + Address args).
-# The canonical accesly_wallet validation in install() is skipped until init() is called manually.
-
-# ── 12. Blend Rule Policy (sin constructor) ───────────────────────────────────
-deploy_no_ctor "accesly-blend-rule" "accesly_blend_rule.wasm"
-BLEND_RULE=$(addr_of "accesly-blend-rule")
-info "blend-rule → $BLEND_RULE"
+# ── 10-12. (deprecadas 2026-06-15) Blend Vault + Yield Policy + Rule ─────────
+# Sin integración Blend en el nuevo spec. Crates excluidos del workspace.
+BLEND_VAULT="DEPRECATED"
+BLEND_YIELD_POLICY="DEPRECATED"
+BLEND_RULE="DEPRECATED"
 
 # ── 13. Upgrade Rule Policy (sin constructor) ─────────────────────────────────
 deploy_no_ctor "accesly-upgrade-rule" "accesly_upgrade_rule.wasm"

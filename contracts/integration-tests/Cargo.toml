@@ -22,7 +22,10 @@ ed25519-dalek    = { workspace = true }
 accesly-smart-account      = { path = "../smart-account" }
 accesly-ed25519-verifier   = { path = "../ed25519-verifier" }
 accesly-secp256r1-verifier = { path = "../secp256r1-verifier" }
-accesly-zk-email-verifier  = { path = "../zk-email-verifier" }
 accesly-spending-limit     = { path = "../spending-limit" }
-accesly-yield-distribution = { path = "../yield-distribution" }
 accesly-governance         = { path = "../governance" }
+# zk-email-verifier sigue como dev-dep solo porque el constructor del SmartAccount
+# v2-legacy invoca `batch_canonicalize_key` durante el setup. Saldrá cuando llegue
+# SmartAccount v3 en Fase 1.
+accesly-zk-email-verifier  = { path = "../zk-email-verifier" }
+# accesly-yield-distribution: fuera de workspace. Test setup_yield_* eliminados.

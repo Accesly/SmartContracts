@@ -1,6 +1,35 @@
 [workspace]
 resolver = "2"
-members = ["contracts/*"]
+# Workspace explícito tras la poda 2026-06-15.
+#
+# Out-of-scope (no compilan en el workspace, viven en `contracts/` solo
+# por git history para rescate si el spec cambia):
+#  - yield-distribution: yield interno fuera de scope (Etherfuse cubre rendimiento).
+#  - blend-vault, blend-yield-policy, blend-rule: Blend integration fuera de scope.
+#
+# Deprecated pero AÚN en workspace (smart-account v2-legacy lo invoca durante el
+# constructor para `batch_canonicalize_key`; saldrá del workspace cuando llegue
+# Smart Account v3 en Fase 1 que ya no referencia zk-email):
+#  - zk-email-verifier
+#
+# Ver SDKAccesly/docs/Plan_Final_v1.md §10 y §11 (Fase 1).
+members = [
+    "contracts/ed25519-verifier",
+    "contracts/secp256r1-verifier",
+    "contracts/zk-email-verifier",
+    "contracts/spending-limit",
+    "contracts/session-key",
+    "contracts/governance",
+    "contracts/upgrade-rule",
+    "contracts/smart-account",
+    "contracts/integration-tests",
+]
+exclude = [
+    "contracts/yield-distribution",
+    "contracts/blend-vault",
+    "contracts/blend-yield-policy",
+    "contracts/blend-rule",
+]
 
 [workspace.package]
 edition = "2021"
