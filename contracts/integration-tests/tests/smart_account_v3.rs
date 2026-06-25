@@ -1,14 +1,17 @@
 //! End-to-end Smart Account v3 tests.
 //!
 //! Construye `AcceslySmartAccountV3` contra los verifiers y la spending-limit
-//! policy reales. Valida:
+//! policy reales. Post Fase R (2026-06-25): deploy en 2 fases (constructor +
+//! bootstrap). Valida:
 //!
-//! 1. Constructor con 8 args (sin `zk_email_verifier`, sin `trusted_assets`).
-//! 2. Solo 3 context rules base: biometric-tx × N + admin-cfg + sep10-auth.
-//!    NO instala zk-recovery ni yield-auto.
-//! 3. Reentry: __constructor panicea con AlreadyInitialized.
-//! 4. `get_email_commitment` devuelve el valor del constructor.
-//! 5. `rotate_signer`:
+//! 1. `__constructor(deployer)`: solo guarda el deployer autorizado, no
+//!    instala rules. `is_initialized() == false` post-constructor.
+//! 2. `bootstrap(...)` (8 args): instala las rules base (biometric-tx × N +
+//!    admin-cfg + sep10-auth). Solo el `deployer` puede llamar. Una sola vez.
+//! 3. NO instala zk-recovery ni yield-auto.
+//! 4. Reentry: bootstrap panica con `AlreadyInitialized` en segunda llamada.
+//! 5. `get_email_commitment` devuelve el valor del bootstrap.
+//! 6. `rotate_signer`:
 //!    - actualiza email_commitment en storage.
 //!    - emite un evento `SignerRotated` desde el Smart Account.
 //!    - mantiene el conteo de reglas estable.
@@ -53,29 +56,40 @@ fn spending_params(e: &Env) -> Val {
     .into_val(e)
 }
 
+/// Deploy del SA en su forma minimal — solo guarda el deployer en storage.
+/// El SA no es operacional hasta que se llame `bootstrap()`.
+fn deploy_v3_shell(e: &Env, deployer: &Address) -> Address {
+    e.register(AcceslySmartAccountV3, (deployer.clone(),))
+}
+
+/// Deploy completo: registra el shell y luego corre bootstrap() con los args
+/// del constructor viejo. Helper para tests que esperan un SA listo.
 fn deploy_v3(
     e: &Env,
     d: &Deps,
     tx_targets: Vec<Address>,
     email_commit: &[u8; 32],
 ) -> Address {
+    let deployer = Address::generate(e);
+    let sa = deploy_v3_shell(e, &deployer);
+    let client = AcceslySmartAccountV3Client::new(e, &sa);
+
     let owner_ed25519 = BytesN::from_array(e, &[1u8; 32]);
     let email_commitment = BytesN::from_array(e, email_commit);
     let secp256r1_pubkey = BytesN::from_array(e, &[3u8; 65]);
 
-    e.register(
-        AcceslySmartAccountV3,
-        (
-            owner_ed25519,
-            email_commitment,
-            secp256r1_pubkey,
-            d.ed25519_verifier.clone(),
-            d.secp256r1_verifier.clone(),
-            d.spending_limit_policy.clone(),
-            spending_params(e),
-            tx_targets,
-        ),
-    )
+    client.bootstrap(
+        &owner_ed25519,
+        &email_commitment,
+        &secp256r1_pubkey,
+        &d.ed25519_verifier,
+        &d.secp256r1_verifier,
+        &d.spending_limit_policy,
+        &spending_params(e),
+        &tx_targets,
+    );
+
+    sa
 }
 
 #[test]
@@ -151,7 +165,7 @@ fn v3_does_not_install_zk_recovery_rule() {
 
 #[test]
 #[should_panic]
-fn v3_constructor_cannot_be_called_twice() {
+fn v3_bootstrap_cannot_be_called_twice() {
     let e = Env::default();
     e.mock_all_auths();
 
@@ -160,24 +174,55 @@ fn v3_constructor_cannot_be_called_twice() {
     tx_targets.push_back(d.usdc_sac.clone());
 
     let sa = deploy_v3(&e, &d, tx_targets.clone(), &[7u8; 32]);
+    let client = AcceslySmartAccountV3Client::new(&e, &sa);
 
+    // Segunda llamada a bootstrap → debe panicar con AlreadyInitialized.
     let owner = BytesN::from_array(&e, &[9u8; 32]);
     let email = BytesN::from_array(&e, &[9u8; 32]);
     let secp = BytesN::from_array(&e, &[9u8; 65]);
 
-    e.as_contract(&sa, || {
-        AcceslySmartAccountV3::__constructor(
-            &e,
-            owner,
-            email,
-            secp,
-            d.ed25519_verifier.clone(),
-            d.secp256r1_verifier.clone(),
-            d.spending_limit_policy.clone(),
-            spending_params(&e),
-            tx_targets,
-        );
-    });
+    client.bootstrap(
+        &owner,
+        &email,
+        &secp,
+        &d.ed25519_verifier,
+        &d.secp256r1_verifier,
+        &d.spending_limit_policy,
+        &spending_params(&e),
+        &tx_targets,
+    );
+}
+
+#[test]
+fn v3_constructor_shell_is_not_initialized() {
+    let e = Env::default();
+    let deployer = Address::generate(&e);
+    let sa = deploy_v3_shell(&e, &deployer);
+    let client = AcceslySmartAccountV3Client::new(&e, &sa);
+
+    assert!(
+        !client.is_initialized(),
+        "shell deployment NO debería estar initialized antes de bootstrap"
+    );
+    assert_eq!(
+        client.get_context_rules_count(),
+        0,
+        "shell deployment NO debe tener rules"
+    );
+}
+
+#[test]
+fn v3_bootstrap_marks_initialized() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let d = make_deps(&e);
+    let tx_targets: Vec<Address> = Vec::new(&e);
+
+    let sa = deploy_v3(&e, &d, tx_targets, &[7u8; 32]);
+    let client = AcceslySmartAccountV3Client::new(&e, &sa);
+
+    assert!(client.is_initialized(), "post-bootstrap is_initialized=true");
 }
 
 #[test]

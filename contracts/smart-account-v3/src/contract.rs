@@ -3,20 +3,27 @@
 //! Reescritura del Smart Account post nuevo spec (2026-06-15). Cambios clave
 //! vs v2-legacy (`accesly-smart-account`):
 //!
-//! 1. **Constructor 8 args** — sale `zk_email_verifier`, sale `trusted_assets`.
+//! 1. **Constructor minimal** — sale `zk_email_verifier`, sale `trusted_assets`.
 //!    El backend `create-wallet` arma `change_trust` ops por fuera.
 //! 2. **Sin `setup_yield`** — yield interno fuera de scope. Etherfuse cubre
 //!    rendimiento off-chain.
 //! 3. **Sin context rule `zk-recovery`** — el recovery v2 (OTP-email + password
 //!    de Cognito) reconstruye la seed en cliente y firma una tx normal vía
 //!    `admin-cfg`. No requiere verifier ZK on-chain.
-//! 4. **Nueva función pública `rotate_signer`** — pieza clave del recovery v2.
+//! 4. **Función pública `rotate_signer`** — pieza clave del recovery v2.
 //!    Rota owner_ed25519, secp256r1 pubkey y email_commitment en una sola tx
 //!    atómica firmada con la seed reconstruida (admin-cfg auth).
+//! 5. **Deploy en 2 fases (Fase R, 2026-06-25)**: tras protocol 27 bajar el
+//!    cap de `txWriteBytes` a 132KB, el constructor que invocaba
+//!    `setup_context_rules` (lo que toca las WASMs de los verifiers via
+//!    `batch_canonicalize_key`) excedía el cap (~163KB). Se separó la lógica:
+//!      - `__constructor(deployer)`: solo guarda el deployer autorizado (~95KB tx).
+//!      - `bootstrap(...)`: instala las rules y persiste storage (~30KB tx,
+//!        verifiers van como readOnly porque ya están deployados).
 //!
 //! Ver SDKAccesly/docs/Plan_Final_v1.md §11 para el spec completo.
 //!
-//! ## Context Rules instaladas en constructor
+//! ## Context Rules instaladas en `bootstrap()`
 //!
 //! | IDs       | Nombre        | ContextRuleType              | Signers              | Policies         |
 //! |-----------|---------------|------------------------------|----------------------|------------------|
@@ -49,13 +56,23 @@ use crate::context_rules::setup_context_rules;
 #[repr(u32)]
 enum SmartAccountV3Error {
     AlreadyInitialized = 9001,
+    /// `bootstrap` requiere auth del deployer que se registró en el constructor.
+    NotAuthorizedDeployer = 9002,
+    /// Operación sobre un SA que aún no llamó a `bootstrap()`.
+    NotYetBootstrapped = 9003,
     /// `rotate_signer` no encontró un signer existente que reemplazar.
     SignerNotFoundForRotation = 9101,
 }
 
 #[contracttype]
 enum StorageKey {
+    /// Marca que `bootstrap()` ya corrió. Antes de eso el SA tiene contract
+    /// instance pero ninguna rule — todas las operaciones del usuario fallan.
     Initialized,
+    /// Address que firmó el `createContract`. Es el único que puede llamar a
+    /// `bootstrap()`. Para Accesly esto es siempre `channels-fund` del backend.
+    /// Esta storage entry se borra al final de `bootstrap()` (one-shot use).
+    Deployer,
     /// SHA-256(email || salt) — usado por el backend para discovery vía emailHash.
     /// Se actualiza en cada `rotate_signer`.
     EmailCommitment,
@@ -87,22 +104,44 @@ pub struct AcceslySmartAccountV3;
 
 #[contractimpl]
 impl AcceslySmartAccountV3 {
-    /// Crea el Smart Account v3 para un usuario.
+    /// Crea el Smart Account v3 con storage mínimo. Solo guarda el `deployer`
+    /// autorizado para llamar a `bootstrap()`.
+    ///
+    /// Esta separación deploy/bootstrap es por el cap de `txWriteBytes` de
+    /// Soroban protocol 27 (132KB). Un constructor que invocara
+    /// `setup_context_rules` tocaría las WASMs de los 2 verifiers (~47KB) +
+    /// la WASM del SA (~91KB) + storage = ~163KB, sobre el cap. Splitea:
+    ///   - Deploy (`__constructor`): SA WASM + 1 storage entry → ~95KB ✓
+    ///   - Bootstrap: verifiers como readOnly + rules/signers data → ~30KB ✓
+    ///
+    /// # Arguments
+    /// * `deployer` — Address que firmó el `createContract`. Es el único que
+    ///   puede llamar `bootstrap()` para completar la inicialización. En el
+    ///   backend de Accesly esto es siempre `channels-fund`.
+    pub fn __constructor(e: &Env, deployer: Address) {
+        e.storage().instance().set(&StorageKey::Deployer, &deployer);
+    }
+
+    /// Completa la inicialización del Smart Account: persiste signers + verifiers
+    /// en storage e instala las 3 context rules base (biometric-tx × N + admin-cfg
+    /// + sep10-auth).
+    ///
+    /// Solo puede llamarse UNA VEZ y solo por el `deployer` registrado en
+    /// `__constructor`. Tras el éxito, el storage de `Deployer` se borra y el
+    /// flag `Initialized` se setea — futuras llamadas a `bootstrap` panican.
     ///
     /// # Arguments
     /// * `owner_ed25519`         — Pubkey ed25519 reconstruida F1+F2+F3 (32 bytes).
-    /// * `email_commitment`      — `sha256(email || salt)` (32 bytes). Identifica
-    ///   al propietario para discovery off-chain por parte del backend.
+    /// * `email_commitment`      — `sha256(email || salt)` (32 bytes).
     /// * `secp256r1_pubkey`      — Pubkey del passkey (65 bytes uncompressed).
     /// * `ed25519_verifier`      — Address del Ed25519Verifier compartido.
     /// * `secp256r1_verifier`    — Address del Secp256r1Verifier compartido.
     /// * `spending_limit_policy` — Address del SpendingLimitPolicy compartido.
-    /// * `spending_limit_params` — XDR `SpendingLimitAccountParams`. Mismo
-    ///   límite + ventana para cada token en `tx_targets`.
-    /// * `tx_targets`            — Vec de SAC addresses (USDC, EURC, MXNe…)
-    ///   donde aplica el spending-limit. Vacío → solo 2 rules base; el SDK
-    ///   agrega biometric-tx dinámicamente vía admin-cfg.
-    pub fn __constructor(
+    /// * `spending_limit_params` — XDR `SpendingLimitAccountParams`.
+    /// * `tx_targets`            — Vec de SAC addresses para spending-limit.
+    ///   Vacío → solo 2 rules base (admin-cfg + sep10-auth); el backend
+    ///   agrega biometric-tx después vía `activate-asset`.
+    pub fn bootstrap(
         e: &Env,
         owner_ed25519: BytesN<32>,
         email_commitment: BytesN<32>,
@@ -113,13 +152,24 @@ impl AcceslySmartAccountV3 {
         spending_limit_params: Val,
         tx_targets: Vec<Address>,
     ) {
+        // 1. Idempotencia: bootstrap es one-shot.
         if e.storage().instance().has(&StorageKey::Initialized) {
             panic_with_error!(e, SmartAccountV3Error::AlreadyInitialized);
         }
-        e.storage().instance().set(&StorageKey::Initialized, &true);
 
-        // Persistimos email_commitment + verifiers para que rotate_signer pueda
-        // reconstruir los Signer::External sin requerirlos como args.
+        // 2. Auth: solo el deployer registrado en __constructor puede ejecutar
+        // bootstrap. Esto previene griefing donde un tercero llame bootstrap
+        // con sus propias keys antes que el backend legítimo.
+        let deployer: Address = e
+            .storage()
+            .instance()
+            .get(&StorageKey::Deployer)
+            .unwrap_or_else(|| panic_with_error!(e, SmartAccountV3Error::NotAuthorizedDeployer));
+        deployer.require_auth();
+
+        // 3. Persistir email_commitment + verifiers (sigue siendo lo mismo que
+        // hacía el constructor viejo). rotate_signer los necesita después.
+        e.storage().instance().set(&StorageKey::Initialized, &true);
         e.storage()
             .instance()
             .set(&StorageKey::EmailCommitment, &email_commitment);
@@ -130,6 +180,10 @@ impl AcceslySmartAccountV3 {
             .instance()
             .set(&StorageKey::Secp256r1Verifier, &secp256r1_verifier);
 
+        // 4. Borrar el Deployer storage — ya no se necesita y libera espacio.
+        e.storage().instance().remove(&StorageKey::Deployer);
+
+        // 5. Instalar las context rules base.
         setup_context_rules(
             e,
             &owner_ed25519,
@@ -142,7 +196,13 @@ impl AcceslySmartAccountV3 {
         );
     }
 
+    /// Devuelve `true` si `bootstrap()` ya fue llamado y el SA está operativo.
+    pub fn is_initialized(e: &Env) -> bool {
+        e.storage().instance().has(&StorageKey::Initialized)
+    }
+
     /// Devuelve el `email_commitment` actual (útil para auditoría off-chain).
+    /// Devuelve zeros si el SA aún no se bootstrappeó.
     pub fn get_email_commitment(e: &Env) -> BytesN<32> {
         e.storage()
             .instance()
