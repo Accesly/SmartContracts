@@ -1,6 +1,6 @@
 [package]
 name = "accesly-smart-account-v3"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 
@@ -11,6 +11,13 @@ license.workspace = true
 #   Sin yield-auto (yield interno fuera de scope).
 # - Función rotate_signer para Recovery v2: rota owner_ed25519, secp256r1
 #   pubkey y email_commitment en una sola tx admin-cfg.
+#
+# v0.2.0 (Fase T, 2026-07-03) — rotate particionado:
+# - `rotate_signer_partial(rule_ids, new_owner, new_secp)`: rota un subset
+#   de rules para que cada tx quepa bajo el cap P27 (132KB writeBytes).
+# - `finalize_rotation(new_owner, new_secp, new_email_commitment)`: cierra
+#   el flow multi-tx, persiste email_commitment y emite SignerRotated.
+# - `rotate_signer` legacy se mantiene para retro-compat con wallets <=3 rules.
 #
 # v2-legacy (`accesly-smart-account`) sigue compilando durante la transición
 # y queda zombie en testnet/mainnet. Las cuentas nuevas usan v3.

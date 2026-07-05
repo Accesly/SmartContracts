@@ -20,6 +20,18 @@
 //!      - `__constructor(deployer)`: solo guarda el deployer autorizado (~95KB tx).
 //!      - `bootstrap(...)`: instala las rules y persiste storage (~30KB tx,
 //!        verifiers van como readOnly porque ya están deployados).
+//! 6. **v3.2.0 (Fase T, 2026-07-03)**: `rotate_signer` particionado. En wallets
+//!    con 4+ context rules el rotate atómico también excedía el cap P27
+//!    (medido: 166KB write en wallet con admin-cfg + sep10-auth + 2 biometric-tx,
+//!    ver `Testnet_Deployment.md`). Se agregan:
+//!      - `rotate_signer_partial(rule_ids, new_owner, new_secp)`: rota solo
+//!        el subset de rules pasadas. Sin `email_commitment`, sin evento —
+//!        pensado para llamarse N veces batcheando.
+//!      - `finalize_rotation(new_owner, new_secp, new_email_commitment)`:
+//!        actualiza el email_commitment y emite `SignerRotated`. Se llama
+//!        una vez tras cubrir todas las rules con `rotate_signer_partial`.
+//!    El `rotate_signer` atómico se mantiene por retro-compat para wallets
+//!    con <= 3 rules donde sigue cabiendo bajo el cap.
 //!
 //! Ver SDKAccesly/docs/Plan_Final_v1.md §11 para el spec completo.
 //!
@@ -62,6 +74,15 @@ enum SmartAccountV3Error {
     NotYetBootstrapped = 9003,
     /// `rotate_signer` no encontró un signer existente que reemplazar.
     SignerNotFoundForRotation = 9101,
+    /// `rotate_signer_partial` recibió `rule_ids` vacío. El caller debe pasar
+    /// al menos un rule para rotar; si no hay nada que rotar, no llamar.
+    EmptyRuleIdsInPartial = 9102,
+    /// `rotate_signer_partial` recibió un rule_id que no existe en la wallet.
+    RuleIdOutOfRange = 9103,
+    /// `rotate_signer_partial` intentó tocar una regla que no es biometric-tx,
+    /// admin-cfg ni sep10-auth. Esas se rotan aparte con `add_signer/remove_signer`
+    /// firmado por admin-cfg — no las mueve el flow de recovery.
+    RuleNotRotatable = 9104,
 }
 
 #[contracttype]
@@ -286,6 +307,136 @@ impl AcceslySmartAccountV3 {
         }
 
         // Actualizamos email_commitment para audit y discovery off-chain.
+        e.storage()
+            .instance()
+            .set(&StorageKey::EmailCommitment, &new_email_commitment);
+
+        SignerRotated {
+            smart_account: e.current_contract_address(),
+            new_owner_ed25519,
+            new_secp256r1_pubkey,
+            new_email_commitment,
+        }
+        .publish(e);
+    }
+
+    /// Rota el signer de un subconjunto de rules — pieza 1 del flow de recovery
+    /// particionado (v3.2.0, Fase T).
+    ///
+    /// Diseñada para wallets con 4+ context rules donde el `rotate_signer`
+    /// atómico excede el cap P27 de `txWriteBytes` (132KB). El caller (SDK)
+    /// enumera las rules on-chain, agrupa por batches que caben bajo el cap
+    /// (~2-3 rules por batch en la práctica), y llama esta función N veces.
+    /// Termina con `finalize_rotation` para persistir `email_commitment` y
+    /// emitir `SignerRotated`.
+    ///
+    /// # Estado intermedio
+    /// Durante la ventana entre el primer `rotate_signer_partial` y el
+    /// `finalize_rotation`, algunas rules apuntan al signer viejo y otras al
+    /// nuevo. Ambos pueden firmar mientras dure ese estado — es responsabilidad
+    /// del SDK completar el flow en el mismo commit lógico. Si el SDK falla
+    /// entre calls, retry hasta cerrar la rotación con `finalize_rotation`.
+    ///
+    /// # Auth
+    /// Requiere admin-cfg. La primera call se autoriza con el signer viejo;
+    /// las siguientes también, mientras `admin-cfg` aún tenga el viejo. Si el
+    /// caller decidió incluir `admin-cfg` en el primer batch, las siguientes
+    /// calls deben autorizarse con el NUEVO signer.
+    pub fn rotate_signer_partial(
+        e: &Env,
+        rule_ids: Vec<u32>,
+        new_owner_ed25519: BytesN<32>,
+        new_secp256r1_pubkey: BytesN<65>,
+    ) {
+        e.current_contract_address().require_auth();
+
+        if rule_ids.is_empty() {
+            panic_with_error!(e, SmartAccountV3Error::EmptyRuleIdsInPartial);
+        }
+
+        let ed25519_verifier: Address = e
+            .storage()
+            .instance()
+            .get(&StorageKey::Ed25519Verifier)
+            .unwrap_or_else(|| panic_with_error!(e, SmartAccountV3Error::SignerNotFoundForRotation));
+        let secp256r1_verifier: Address = e
+            .storage()
+            .instance()
+            .get(&StorageKey::Secp256r1Verifier)
+            .unwrap_or_else(|| panic_with_error!(e, SmartAccountV3Error::SignerNotFoundForRotation));
+
+        let new_owner_signer = Signer::External(
+            ed25519_verifier,
+            Bytes::from_slice(e, &new_owner_ed25519.to_array()),
+        );
+        let new_secp_signer = Signer::External(
+            secp256r1_verifier,
+            Bytes::from_slice(e, &new_secp256r1_pubkey.to_array()),
+        );
+
+        let count = smart_account_lib::get_context_rules_count(e);
+        let biometric_tx_name = String::from_str(e, "biometric-tx");
+        let admin_cfg_name = String::from_str(e, "admin-cfg");
+        let sep10_name = String::from_str(e, "sep10-auth");
+
+        for i in 0..rule_ids.len() {
+            let rule_id = rule_ids.get(i).unwrap();
+
+            if rule_id >= count {
+                panic_with_error!(e, SmartAccountV3Error::RuleIdOutOfRange);
+            }
+
+            let rule = smart_account_lib::get_context_rule(e, rule_id);
+
+            // Solo procesamos rules que sabemos rotar. Session-key, allowlist,
+            // upgrade-rule, etc. requieren un flow distinto (el caller las
+            // gestiona con admin-cfg add/remove_signer aparte).
+            let rotatable = rule.name == biometric_tx_name
+                || rule.name == admin_cfg_name
+                || rule.name == sep10_name;
+            if !rotatable {
+                panic_with_error!(e, SmartAccountV3Error::RuleNotRotatable);
+            }
+
+            // El esquema del bootstrap solo deja 1 signer por rule. Si el SDK
+            // agregó signers adicionales fuera del path canónico, no los
+            // tocamos aquí — el caller debe usar `add_signer/remove_signer`.
+            if rule.signer_ids.len() != 1 {
+                continue;
+            }
+            let old_signer_id = rule.signer_ids.get(0).unwrap();
+
+            if rule.name == biometric_tx_name || rule.name == admin_cfg_name {
+                smart_account_lib::add_signer(e, rule_id, &new_owner_signer);
+                smart_account_lib::remove_signer(e, rule_id, old_signer_id);
+            } else {
+                // sep10-auth
+                smart_account_lib::add_signer(e, rule_id, &new_secp_signer);
+                smart_account_lib::remove_signer(e, rule_id, old_signer_id);
+            }
+        }
+    }
+
+    /// Cierra un flow de rotate particionado — pieza 2 (final) de v3.2.0.
+    ///
+    /// Persiste `email_commitment` en storage y emite `SignerRotated` con el
+    /// set completo de nuevos identificadores. NO toca ningún rule; asume que
+    /// las calls previas a `rotate_signer_partial` ya cubrieron todas las
+    /// rules que tenían el signer viejo.
+    ///
+    /// # Auth
+    /// Requiere admin-cfg firmado por el **nuevo** owner ed25519 (las calls
+    /// previas ya migraron al menos la rule admin-cfg). Este check funciona
+    /// como safety net contra un caller que llame `finalize_rotation` sin
+    /// haber ejecutado el batch completo.
+    pub fn finalize_rotation(
+        e: &Env,
+        new_owner_ed25519: BytesN<32>,
+        new_secp256r1_pubkey: BytesN<65>,
+        new_email_commitment: BytesN<32>,
+    ) {
+        e.current_contract_address().require_auth();
+
         e.storage()
             .instance()
             .set(&StorageKey::EmailCommitment, &new_email_commitment);
