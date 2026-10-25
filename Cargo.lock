@@ -90,6 +90,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesly-x402-spending-policy"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-accounts",
+]
+
+[[package]]
 name = "accesly-zk-email-verifier"
 version = "0.1.0"
 dependencies = [
