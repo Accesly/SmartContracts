@@ -19,6 +19,7 @@ members = [
     "contracts/zk-email-verifier",
     "contracts/spending-limit",
     "contracts/session-key",
+    "contracts/x402-spending-policy",
     "contracts/governance",
     "contracts/upgrade-rule",
     "contracts/smart-account",
